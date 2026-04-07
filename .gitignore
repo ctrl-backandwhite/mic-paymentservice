@@ -1,0 +1,54 @@
+### Build output ###
+target/
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### Maven wrapper ###
+.mvn/wrapper/maven-wrapper.jar
+mvnw
+mvnw.cmd
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### VS Code ###
+.vscode/
+
+### Environment & secrets ###
+.env
+.env.*
+!.env.example
+src/main/resources/application-local.yaml
+src/main/resources/compose/.env
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Docker (local only) ###
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+### Logs ###
+*.log
+
+### Misc ###
+HELP.md
+*.args
+*.py
+*.bak
+*.tmp
+*.orig

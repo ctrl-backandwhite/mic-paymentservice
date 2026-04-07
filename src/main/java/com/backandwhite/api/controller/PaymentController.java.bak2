@@ -1,0 +1,88 @@
+packagecom.backandwhite.api.controller;importcom.backandwhite.api.dto.PaginationDtoOut;importcom.backandwhite.api.dto.in.CryptoCreateDtoIn;importcom.backandwhite.api.dto.in.PaymentProcessDtoIn;importcom.backandwhite.api.dto.in.PaymentRefundDtoIn;importcom.backandwhite.api.dto.out.PaymentDtoOut;importcom.backandwhite.api.dto.out.PaymentRefundDtoOut;importcom.backandwhite.api.mapper.PaymentApiMapper;importcom.backandwhite.api.util.PaginationMapper;importcom.backandwhite.application.usecase.PaymentUseCase;importcom.backandwhite.common.constants.AppConstants;importcom.backandwhite.common.security.annotation.NxAdmin;importcom.backandwhite.common.security.annotation.NxPublic;importcom.backandwhite.common.security.annotation.NxUser;importjakarta.validation.Valid;importlombok.RequiredArgsConstructor;importorg.springframework.http.HttpStatus;importorg.springframework.http.ResponseEntity;importorg.springframework.web.bind.annotation.GetMapping;importorg.springframework.web.bind.annotation.PathVariable;importorg.springframework.web.bind.annotation.PostMapping;importorg.springframework.web.bind.annotation.RequestBody;importorg.springframework.web.bind.annotation.RequestHeader;importorg.springframework.web.bind.annotation.RequestMapping;importorg.springframework.web.bind.annotation.RequestParam;importorg.springframework.web.bind.annotation.RestController;importjava.util.HashMap;importjava.util.Map;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/v1/payments")publicclassPaymentController {privatefinalPaymentUseCaseuseCase;privatefinalPaymentApiMappermapper;
+
+    @PostMapping("/process")publicResponseEntity<PaymentDtoOut>processPayment(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @Valid @RequestBodyPaymentProcessDtoIndto) {varpayment =useCase.processPayment(dto.getOrderId(),dto.getUserId(),dto.getAmount(),dto.getCurrency(),dto.getPaymentMethod(),dto.getIdempotencyKey());returnResponseEntity.status(HttpStatus.CREATED).body(mapper.toDto(payment));
+    }
+
+    @GetMapping("/{id}")publicResponseEntity<PaymentDtoOut>findById(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @PathVariableStringid) {returnResponseEntity.ok(mapper.toDto(useCase.findById(id)));
+    }
+
+    @GetMapping("/order/{orderId}")publicResponseEntity<PaymentDtoOut>findByOrderId(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @PathVariableStringorderId) {returnResponseEntity.ok(mapper.toDto(useCase.findByOrderId(orderId)));
+    }
+
+    @GetMapping("/user/{userId}")publicResponseEntity<PaginationDtoOut<PaymentDtoOut>>findByUserId(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @PathVariableStringuserId,
+            @RequestParam(defaultValue = "0")intpage,
+            @RequestParam(defaultValue = "20")intsize,
+            @RequestParam(defaultValue = "createdAt")StringsortBy,
+            @RequestParam(defaultValue = "false")booleanascending) {varresult =useCase.findByUserId(userId,page,size,sortBy,ascending);returnResponseEntity.ok(PaginationMapper.map(result,mapper::toDto));
+    }
+
+    @GetMappingpublicResponseEntity<PaginationDtoOut<PaymentDtoOut>>findAll(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @RequestParam(required =false)Stringsearch,
+            @RequestParam(required =false)Stringstatus,
+            @RequestParam(required =false)StringpaymentMethod,
+            @RequestParam(defaultValue = "0")intpage,
+            @RequestParam(defaultValue = "20")intsize,
+            @RequestParam(defaultValue = "createdAt")StringsortBy,
+            @RequestParam(defaultValue = "false")booleanascending) {Map<String,Object>filters =newHashMap<>();if (search !=null)filters.put("search",search);if (status !=null)filters.put("status",status);if (paymentMethod !=null)filters.put("paymentMethod",paymentMethod);varresult =useCase.findAll(filters,page,size,sortBy,ascending);returnResponseEntity.ok(PaginationMapper.map(result,mapper::toDto));
+    }
+
+    @PostMapping("/{id}/refund")publicResponseEntity<PaymentRefundDtoOut>refundPayment(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @PathVariableStringid,
+            @Valid @RequestBodyPaymentRefundDtoIndto) {varrefund =useCase.refundPayment(id,dto.getAmount(),dto.getReason());returnResponseEntity.status(HttpStatus.CREATED).body(mapper.toRefundDto(refund));
+    }
+
+    @GetMapping("/{id}/refunds")publicResponseEntity<PaginationDtoOut<PaymentRefundDtoOut>>findRefunds(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @PathVariableStringid,
+            @RequestParam(defaultValue = "0")intpage,
+            @RequestParam(defaultValue = "20")intsize,
+            @RequestParam(defaultValue = "createdAt")StringsortBy,
+            @RequestParam(defaultValue = "false")booleanascending) {varresult =useCase.findRefunds(id,page,size,sortBy,ascending);returnResponseEntity.ok(PaginationMapper.map(result,mapper::toRefundDto));
+    }
+
+    // ---Cryptoendpoints ---
+
+    @PostMapping("/crypto/create")publicResponseEntity<PaymentDtoOut>createCryptoPayment(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @Valid @RequestBodyCryptoCreateDtoIndto) {varpayment =useCase.createCryptoPayment(dto.getOrderId(),dto.getUserId(),dto.getAmount(),dto.getCurrency(),dto.getPaymentMethod());returnResponseEntity.status(HttpStatus.CREATED).body(mapper.toDto(payment));
+    }
+
+    @GetMapping("/crypto/{id}/verify")publicResponseEntity<PaymentDtoOut>verifyCryptoPayment(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @PathVariableStringid) {returnResponseEntity.ok(mapper.toDto(useCase.verifyCryptoPayment(id)));
+    }
+
+    // ---Webhookendpoints ---
+
+    @PostMapping("/webhook/stripe")publicResponseEntity<Void>stripeWebhook(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @RequestBodyStringpayload,
+            @RequestHeader(value = "Stripe-Signature",required =false)Stringsignature) {useCase.handleWebhook("stripe",payload,signature);returnResponseEntity.ok().build();
+    }
+
+    @PostMapping("/webhook/paypal")publicResponseEntity<Void>paypalWebhook(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @RequestBodyStringpayload,
+            @RequestHeader(value = "PayPal-Transmission-Sig",required =false)Stringsignature) {useCase.handleWebhook("paypal",payload,signature);returnResponseEntity.ok().build();
+    }
+
+    @PostMapping("/webhook/crypto")publicResponseEntity<Void>cryptoWebhook(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH)StringnxAuth,
+            @RequestBodyStringpayload,
+            @RequestHeader(value = "X-Webhook-Signature",required =false)Stringsignature) {useCase.handleWebhook("crypto",payload,signature);returnResponseEntity.ok().build();
+    }
+}
