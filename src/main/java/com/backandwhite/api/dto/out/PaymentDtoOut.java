@@ -21,6 +21,11 @@ public class PaymentDtoOut {
     private String userId;
     private BigDecimal amount;
     private String currency;
+
+    private BigDecimal settlementAmount;
+    private String settlementCurrency;
+    private BigDecimal exchangeRate;
+
     private PaymentStatus status;
     private PaymentMethod paymentMethod;
     private String providerRef;

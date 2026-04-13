@@ -2,6 +2,7 @@ package com.backandwhite.infrastructure.message.kafka.consumer;
 
 import com.backandwhite.application.usecase.PaymentUseCase;
 import com.backandwhite.common.constants.AppConstants;
+import com.backandwhite.common.domain.valueobject.Money;
 import com.backandwhite.core.kafka.avro.OrderCreatedEvent;
 import com.backandwhite.core.kafka.avro.OrderReturnApprovedEvent;
 import com.backandwhite.domain.model.Payment;
@@ -48,8 +49,8 @@ public class PaymentEventConsumerService {
             }
             BigDecimal refundAmount = refundAmountStr != null
                     ? new BigDecimal(refundAmountStr)
-                    : payment.getAmount();
-            paymentUseCase.refundPayment(payment.getId(), refundAmount,
+                    : payment.getAmount().getAmount();
+            paymentUseCase.refundPayment(payment.getId(), Money.of(refundAmount),
                     "Auto-refund for approved return on order " + orderId);
             log.info("::> Auto-refund processed for orderId={}, paymentId={}, amount={}",
                     orderId, payment.getId(), refundAmount);

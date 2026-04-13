@@ -1,9 +1,12 @@
 package com.backandwhite.infrastructure.db.postgres.entity;
 
 import com.backandwhite.common.infrastructure.entity.AuditableEntity;
+import com.backandwhite.common.domain.valueobject.Money;
+import com.backandwhite.common.domain.valueobject.MoneyConverter;
 import com.backandwhite.domain.valueobject.PaymentMethod;
 import com.backandwhite.domain.valueobject.PaymentStatus;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -42,11 +45,22 @@ public class PaymentEntity extends AuditableEntity {
     @Column(name = "user_id", nullable = false, length = 64)
     private String userId;
 
+    @Convert(converter = MoneyConverter.class)
     @Column(nullable = false, precision = 15, scale = 2)
-    private BigDecimal amount;
+    private Money amount;
 
     @Column(nullable = false, length = 3)
     private String currency;
+
+    @Convert(converter = MoneyConverter.class)
+    @Column(name = "settlement_amount", precision = 15, scale = 2)
+    private Money settlementAmount;
+
+    @Column(name = "settlement_currency", length = 10)
+    private String settlementCurrency;
+
+    @Column(name = "exchange_rate", precision = 18, scale = 8)
+    private java.math.BigDecimal exchangeRate;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)

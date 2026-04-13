@@ -1,5 +1,6 @@
 package com.backandwhite.domain.model;
 
+import com.backandwhite.common.domain.valueobject.Money;
 import com.backandwhite.domain.valueobject.PaymentMethod;
 import com.backandwhite.domain.valueobject.PaymentStatus;
 import lombok.AllArgsConstructor;
@@ -22,8 +23,13 @@ public class Payment {
     private String id;
     private String orderId;
     private String userId;
-    private BigDecimal amount;
+    private Money amount;
     private String currency;
+
+    // Settlement fields — actual currency charged to the provider
+    private Money settlementAmount;
+    private String settlementCurrency;
+    private BigDecimal exchangeRate;
     private PaymentStatus status;
     private PaymentMethod paymentMethod;
     private String providerRef;

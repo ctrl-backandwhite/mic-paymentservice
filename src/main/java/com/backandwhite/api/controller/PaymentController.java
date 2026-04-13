@@ -10,6 +10,7 @@ import com.backandwhite.api.mapper.PaymentApiMapper;
 import com.backandwhite.api.util.PageableUtils;
 import com.backandwhite.application.usecase.PaymentUseCase;
 import com.backandwhite.common.constants.AppConstants;
+import com.backandwhite.common.domain.valueobject.Money;
 import com.backandwhite.common.security.annotation.NxAdmin;
 import com.backandwhite.common.security.annotation.NxPublic;
 import com.backandwhite.common.security.annotation.NxUser;
@@ -46,7 +47,7 @@ public class PaymentController {
                         @RequestHeader(AppConstants.HEADER_NX036_AUTH) String nxAuth,
                         @Valid @RequestBody PaymentProcessDtoIn dto) {
                 Payment payment = useCase.processPayment(
-                                dto.getOrderId(), dto.getUserId(), dto.getEmail(), dto.getAmount(),
+                                dto.getOrderId(), dto.getUserId(), dto.getEmail(), Money.of(dto.getAmount()),
                                 dto.getCurrency(), dto.getPaymentMethod(), dto.getIdempotencyKey());
                 return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toDto(payment));
         }
@@ -103,7 +104,7 @@ public class PaymentController {
                         @RequestHeader(AppConstants.HEADER_NX036_AUTH) String nxAuth,
                         @PathVariable String id,
                         @Valid @RequestBody PaymentRefundDtoIn dto) {
-                PaymentRefund refund = useCase.refundPayment(id, dto.getAmount(), dto.getReason());
+                PaymentRefund refund = useCase.refundPayment(id, Money.of(dto.getAmount()), dto.getReason());
                 return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toRefundDto(refund));
         }
 
@@ -126,7 +127,7 @@ public class PaymentController {
                         @RequestHeader(AppConstants.HEADER_NX036_AUTH) String nxAuth,
                         @Valid @RequestBody CryptoCreateDtoIn dto) {
                 Payment payment = useCase.createCryptoPayment(
-                                dto.getOrderId(), dto.getUserId(), dto.getAmount(),
+                                dto.getOrderId(), dto.getUserId(), Money.of(dto.getAmount()),
                                 dto.getCurrency(), dto.getPaymentMethod());
                 return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toDto(payment));
         }

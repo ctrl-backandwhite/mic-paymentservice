@@ -12,6 +12,11 @@ spring:
         open-in-view: false
     liquibase:
         change-log: classpath:db/changelog/db.changelog-master.yaml
+    kafka:
+        listener:
+            observation-enabled: true
+        template:
+            observation-enabled: true
 
 server:
     port: 6007
@@ -21,7 +26,25 @@ management:
         web:
             exposure:
                 include: health,info,metrics
+    tracing:
+        sampling:
+            probability: ${OTEL_SAMPLING_PROBABILITY:1.0}
+    otlp:
+        tracing:
+            endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 logging:
+    pattern:
+        level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
     level:
         com.backandwhite: DEBUG
+
+# --- OAuth2 Resource Server (opt-in) ---
+# To enable JWT validation, uncomment and set OAUTH2_ISSUER_URI + OAUTH2_JWK_SET_URI env vars
+#spring:
+#    security:
+#        oauth2:
+#            resourceserver:
+#                jwt:
+#                    issuer-uri: ${OAUTH2_ISSUER_URI:http://localhost:6001}
+#                    jwk-set-uri: ${OAUTH2_JWK_SET_URI:http://localhost:6001/oauth2/jwks}
