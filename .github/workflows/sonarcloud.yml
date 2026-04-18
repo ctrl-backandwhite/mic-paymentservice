@@ -1,0 +1,85 @@
+name: SonarQube
+on:
+    push:
+        branches:
+            - main
+            - develop
+    pull_request:
+        types: [opened, synchronize, reopened]
+permissions:
+    contents: read
+    packages: read
+jobs:
+    build:
+        name: Build and analyze
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
+            - name: Set up JDK 25
+              uses: actions/setup-java@v4
+              with:
+                  java-version: 25
+                  distribution: "temurin" # Alternative distribution options are available.
+            - name: Cache SonarQube packages
+              uses: actions/cache@v4
+              with:
+                  path: ~/.sonar/cache
+                  key: ${{ runner.os }}-sonar
+                  restore-keys: ${{ runner.os }}-sonar
+            - name: Cache Maven packages
+              uses: actions/cache@v4
+              with:
+                  path: ~/.m2
+                  key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+                  restore-keys: ${{ runner.os }}-m2
+            - name: Build
+              env:
+                  MAVEN_SETTINGS_XML_SECRET: ${{ secrets.MAVEN_SETTINGS_XML }}
+                  MAVEN_SETTINGS_XML_VAR: ${{ vars.MAVEN_SETTINGS_XML }}
+                  GH_PACKAGES_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+                  GITHUB_TOKEN: ${{ github.token }}
+                  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+              run: |
+                  SETTINGS_CONTENT="$MAVEN_SETTINGS_XML_SECRET"
+                  PACKAGE_TOKEN="$GITHUB_TOKEN"
+
+                  if [ -n "$GH_PACKAGES_TOKEN" ]; then
+                    PACKAGE_TOKEN="$GH_PACKAGES_TOKEN"
+                  fi
+
+                  if [ -z "$SETTINGS_CONTENT" ]; then
+                    SETTINGS_CONTENT="$MAVEN_SETTINGS_XML_VAR"
+                  fi
+
+                  mkdir -p ~/.m2
+
+                  if [ -n "$SETTINGS_CONTENT" ]; then
+                    printf "%s" "$SETTINGS_CONTENT" > ~/.m2/settings.xml
+                  else
+                    cat > ~/.m2/settings.xml <<EOF
+                  <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                            xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+                    <servers>
+                      <server>
+                        <id>github</id>
+                        <username>${GITHUB_ACTOR}</username>
+                        <password>${PACKAGE_TOKEN}</password>
+                      </server>
+                    </servers>
+                  </settings>
+                  EOF
+                  fi
+
+                  if ! grep -q "<id>github</id>" ~/.m2/settings.xml; then
+                    echo "::error::MAVEN_SETTINGS_XML debe incluir <server><id>github</id>...</server> para autenticar contra GitHub Packages."
+                    exit 1
+                  fi
+
+                  mvn -s ~/.m2/settings.xml -B verify sonar:sonar \
+                    -Dsonar.projectKey=ctrl-backandwhite_mic-paymentservice \
+                    -Dsonar.organization=ctrl-backandwhite \
+                    -Dsonar.host.url=https://sonarcloud.io \
+                    -Dsonar.token="${SONAR_TOKEN}"
