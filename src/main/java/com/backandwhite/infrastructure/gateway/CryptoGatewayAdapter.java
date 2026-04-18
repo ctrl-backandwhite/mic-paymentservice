@@ -6,51 +6,50 @@ import com.backandwhite.domain.gateway.PaymentResult;
 import com.backandwhite.domain.gateway.RefundRequest;
 import com.backandwhite.domain.gateway.RefundResult;
 import com.backandwhite.domain.valueobject.PaymentMethod;
+import com.backandwhite.infrastructure.client.coinbase.CoinbaseCommerceClient;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.stereotype.Component;
-
-import java.util.Map;
-import java.util.UUID;
+import org.springframework.web.client.RestClientException;
 
 @Log4j2
 @Component
+@RequiredArgsConstructor
 public class CryptoGatewayAdapter implements PaymentGateway {
 
+    private final CoinbaseCommerceClient coinbaseClient;
+
     @Override
+    @SuppressWarnings("unchecked")
     public PaymentResult process(PaymentRequest request) {
-        log.info("Creating crypto payment for order={} amount={} {} method={}",
-                request.getOrderId(), request.getAmount(), request.getCurrency(), request.getMethod());
+        try {
+            String network = request.getMethod() == PaymentMethod.BTC ? "bitcoin" : "usdc";
+            Map<String, Object> charge = coinbaseClient.createCharge(request.getOrderId(), request.getPaymentId(),
+                    request.getAmount(), request.getCurrency(), network);
 
-        // TODO: Integrate with crypto payment processor — currently returns mock
-        // address
-        String address = request.getMethod() == PaymentMethod.BTC
-                ? "bc1q" + UUID.randomUUID().toString().replace("-", "").substring(0, 30)
-                : "0x" + UUID.randomUUID().toString().replace("-", "").substring(0, 40);
+            String code = (String) charge.get("code");
+            Map<String, Object> addresses = (Map<String, Object>) charge.get("addresses");
+            String address = addresses != null ? (String) addresses.get(network) : null;
+            String hostedUrl = (String) charge.get("hosted_url");
 
-        String txRef = "CRYPTO-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
+            return PaymentResult.builder().success(true).providerRef(code).cryptoAddress(address).qrCodeUrl(hostedUrl)
+                    .providerResponse(Map.of("provider", "coinbase", "chargeCode", code, "network", network, "address",
+                            address != null ? address : ""))
+                    .build();
 
-        return PaymentResult.builder()
-                .success(true)
-                .providerRef(txRef)
-                .cryptoAddress(address)
-                .qrCodeUrl("https://api.qrserver.com/v1/create-qr-code/?data=" + address)
-                .providerResponse(Map.of(
-                        "provider", "crypto",
-                        "network", request.getMethod().name(),
-                        "address", address,
-                        "txRef", txRef))
-                .build();
+        } catch (RestClientException e) {
+            log.error("Coinbase Commerce charge creation failed for orderId={}: {}", request.getOrderId(),
+                    e.getMessage());
+            return PaymentResult.builder().success(false).errorMessage(e.getMessage()).build();
+        }
     }
 
     @Override
     public RefundResult refund(RefundRequest request) {
-        log.warn("Crypto refunds are not automatically processed — manual intervention required for paymentId={}",
-                request.getPaymentId());
-
-        return RefundResult.builder()
-                .success(false)
-                .errorMessage("Crypto refunds require manual processing")
-                .build();
+        log.warn("Crypto refunds require manual processing for paymentId={}", request.getPaymentId());
+        return RefundResult.builder().success(false)
+                .errorMessage("Crypto refunds require manual processing via Coinbase Commerce dashboard").build();
     }
 
     @Override

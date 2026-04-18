@@ -27,8 +27,7 @@ public class CurrencyConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new CurrencyRequestFilter())
-                .addPathPatterns("/api/**");
+        registry.addInterceptor(new CurrencyRequestFilter()).addPathPatterns("/api/**");
     }
 
     @Bean

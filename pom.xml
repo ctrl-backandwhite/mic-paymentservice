@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.backandwhite.core</groupId>
         <artifactId>mic-core</artifactId>
-        <version>0.0.1-SNAPSHOT</version>
+        <version>0.0.2-SNAPSHOT</version>
         <relativePath/>
     </parent>
     <artifactId>mic-paymentservice</artifactId>
@@ -29,6 +29,17 @@
             <snapshots><enabled>true</enabled></snapshots>
         </repository>
     </repositories>
+
+    <properties>
+        <sonar.organization>ctrl-backandwhite</sonar.organization>
+        <sonar.projectKey>nx036_${project.artifactId}</sonar.projectKey>
+        <sonar.host.url>${env.SONAR_HOST_URL}</sonar.host.url>
+        <sonar.login>${env.SONAR_TOKEN}</sonar.login>
+        <sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
+        <sonar.sources>src/main/java</sonar.sources>
+        <sonar.tests>src/test/java</sonar.tests>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+    </properties>
 
     <dependencyManagement>
         <dependencies>
@@ -70,6 +81,19 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+            <version>26.3.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-liquibase</artifactId>
         </dependency>
         <dependency>
@@ -96,6 +120,26 @@
             <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.backandwhite.core</groupId>
+            <artifactId>app-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -104,6 +148,26 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.14</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/dto/**</exclude>
+                        <exclude>**/*DtoIn.*</exclude>
+                        <exclude>**/*DtoOut.*</exclude>
+                        <exclude>**/model/**</exclude>
+                        <exclude>**/*Entity.*</exclude>
+                        <exclude>**/MicPaymentserviceApplication.*</exclude>
+                        <exclude>**/configuration/**</exclude>
+                        <exclude>**/*Config.*</exclude>
+                        <exclude>**/*Properties.*</exclude>
+                        <exclude>**/infrastructure/client/**</exclude>
+                        <exclude>**/infrastructure/db/postgres/repository/**</exclude>
+                        <exclude>**/infrastructure/db/postgres/entity/**</exclude>
+                        <exclude>**/infrastructure/db/postgres/specification/**</exclude>
+                        <exclude>**/infrastructure/message/**</exclude>
+                        <exclude>**/*Application.*</exclude>
+                        <exclude>**/valueobject/**</exclude>
+                    </excludes>
+                </configuration>
                 <executions>
                     <execution><goals><goal>prepare-agent</goal></goals></execution>
                     <execution>

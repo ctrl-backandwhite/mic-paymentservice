@@ -1,0 +1,31 @@
+spring:
+    security:
+        oauth2:
+            resourceserver:
+                jwt:
+                    issuer-uri: http://localhost:9000
+
+    kafka:
+        enabled: false
+        bootstrap-servers: ${spring.kafka.bootstrap-servers:localhost:9092}
+
+test:
+    postgres:
+        username: testuser
+        password: testpass
+        database: payment_test_db
+
+payment:
+    stripe:
+        api-key: ${STRIPE_TEST_API_KEY:sk_test_placeholder}
+        webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_placeholder}
+    paypal:
+        client-id: ${PAYPAL_CLIENT_ID:sandbox_client}
+        client-secret: ${PAYPAL_CLIENT_SECRET:sandbox_secret}
+        base-url: https://api-m.sandbox.paypal.com
+    crypto:
+        provider: coinbase
+        coinbase:
+            api-key: ${COINBASE_API_KEY:test_key}
+            webhook-secret: ${COINBASE_WEBHOOK_SECRET:test_secret}
+            base-url: ${COINBASE_BASE_URL:https://api.commerce.coinbase.com}

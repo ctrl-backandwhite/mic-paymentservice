@@ -3,15 +3,14 @@ package com.backandwhite.domain.model;
 import com.backandwhite.common.domain.valueobject.Money;
 import com.backandwhite.domain.valueobject.PaymentMethod;
 import com.backandwhite.domain.valueobject.PaymentStatus;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.With;
-
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.Map;
 
 @Data
 @With

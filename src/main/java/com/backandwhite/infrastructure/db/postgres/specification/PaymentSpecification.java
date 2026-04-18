@@ -2,9 +2,8 @@ package com.backandwhite.infrastructure.db.postgres.specification;
 
 import com.backandwhite.infrastructure.db.postgres.entity.PaymentEntity;
 import jakarta.persistence.criteria.Predicate;
-import org.springframework.data.jpa.domain.Specification;
-
 import java.util.Map;
+import org.springframework.data.jpa.domain.Specification;
 
 public final class PaymentSpecification {
 
@@ -21,11 +20,10 @@ public final class PaymentSpecification {
 
             if (filters.containsKey("search")) {
                 String like = "%" + filters.get("search").toString().toLowerCase() + "%";
-                predicate = cb.and(predicate, cb.or(
-                        cb.like(cb.lower(root.get("orderId")), like),
-                        cb.like(cb.lower(root.get("userId")), like),
-                        cb.like(cb.lower(root.get("providerRef")), like),
-                        cb.like(cb.lower(root.get("idempotencyKey")), like)));
+                predicate = cb.and(predicate,
+                        cb.or(cb.like(cb.lower(root.get("orderId")), like), cb.like(cb.lower(root.get("userId")), like),
+                                cb.like(cb.lower(root.get("providerRef")), like),
+                                cb.like(cb.lower(root.get("idempotencyKey")), like)));
             }
 
             if (filters.containsKey("status")) {
@@ -39,13 +37,11 @@ public final class PaymentSpecification {
             }
 
             if (filters.containsKey("userId")) {
-                predicate = cb.and(predicate,
-                        cb.equal(root.get("userId"), filters.get("userId").toString()));
+                predicate = cb.and(predicate, cb.equal(root.get("userId"), filters.get("userId").toString()));
             }
 
             if (filters.containsKey("orderId")) {
-                predicate = cb.and(predicate,
-                        cb.equal(root.get("orderId"), filters.get("orderId").toString()));
+                predicate = cb.and(predicate, cb.equal(root.get("orderId"), filters.get("orderId").toString()));
             }
 
             return predicate;

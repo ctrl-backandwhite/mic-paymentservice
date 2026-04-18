@@ -20,7 +20,8 @@ public class PaymentCurrencyRouter {
     /**
      * Resolve the settlement currency for a payment method.
      *
-     * @param method the payment method chosen by the user
+     * @param method
+     *            the payment method chosen by the user
      * @return ISO currency code or crypto symbol for settlement
      */
     public String resolveSettlementCurrency(PaymentMethod method) {
@@ -33,8 +34,8 @@ public class PaymentCurrencyRouter {
     }
 
     /**
-     * Whether the settlement currency differs from the display currency,
-     * meaning an exchange-rate conversion is required.
+     * Whether the settlement currency differs from the display currency, meaning an
+     * exchange-rate conversion is required.
      */
     public boolean requiresConversion(String displayCurrency, PaymentMethod method) {
         String settlement = resolveSettlementCurrency(method);

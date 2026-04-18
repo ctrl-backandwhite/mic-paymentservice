@@ -1,8 +1,8 @@
 package com.backandwhite.infrastructure.db.postgres.entity;
 
-import com.backandwhite.common.infrastructure.entity.AuditableEntity;
 import com.backandwhite.common.domain.valueobject.Money;
 import com.backandwhite.common.domain.valueobject.MoneyConverter;
+import com.backandwhite.common.infrastructure.entity.AuditableEntity;
 import com.backandwhite.domain.valueobject.RefundStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;

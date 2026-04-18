@@ -1,8 +1,8 @@
 package com.backandwhite.infrastructure.db.postgres.entity;
 
-import com.backandwhite.common.infrastructure.entity.AuditableEntity;
 import com.backandwhite.common.domain.valueobject.Money;
 import com.backandwhite.common.domain.valueobject.MoneyConverter;
+import com.backandwhite.common.infrastructure.entity.AuditableEntity;
 import com.backandwhite.domain.valueobject.PaymentMethod;
 import com.backandwhite.domain.valueobject.PaymentStatus;
 import jakarta.persistence.Column;
@@ -12,6 +12,8 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,10 +22,6 @@ import lombok.With;
 import lombok.experimental.SuperBuilder;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
-
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.Map;
 
 @With
 @Getter

@@ -9,15 +9,14 @@ import com.backandwhite.infrastructure.db.postgres.mapper.PaymentInfraMapper;
 import com.backandwhite.infrastructure.db.postgres.repository.PaymentJpaRepository;
 import com.backandwhite.infrastructure.db.postgres.repository.PaymentRefundJpaRepository;
 import com.backandwhite.infrastructure.db.postgres.specification.PaymentSpecification;
-import org.springframework.data.jpa.domain.Specification;
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Component;
-
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
@@ -79,7 +78,6 @@ public class PaymentRepositoryImpl implements PaymentRepository {
 
     @Override
     public Page<PaymentRefund> findRefundsByPaymentId(String paymentId, Pageable pageable) {
-        return refundJpaRepository.findByPaymentId(paymentId, pageable)
-                .map(mapper::toRefundDomain);
+        return refundJpaRepository.findByPaymentId(paymentId, pageable).map(mapper::toRefundDomain);
     }
 }

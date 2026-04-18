@@ -6,45 +6,92 @@ import com.backandwhite.domain.gateway.PaymentResult;
 import com.backandwhite.domain.gateway.RefundRequest;
 import com.backandwhite.domain.gateway.RefundResult;
 import com.backandwhite.domain.valueobject.PaymentMethod;
+import com.backandwhite.infrastructure.gateway.config.PaymentGatewayProperties;
+import com.stripe.StripeClient;
+import com.stripe.exception.StripeException;
+import com.stripe.model.PaymentIntent;
+import com.stripe.model.Refund;
+import com.stripe.param.PaymentIntentCreateParams;
+import com.stripe.param.RefundCreateParams;
+import jakarta.annotation.PostConstruct;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.stereotype.Component;
 
-import java.util.Map;
-import java.util.UUID;
-
 @Log4j2
 @Component
+@RequiredArgsConstructor
 public class StripeGatewayAdapter implements PaymentGateway {
+
+    private final PaymentGatewayProperties props;
+    private StripeClient stripeClient;
+
+    @PostConstruct
+    void init() {
+        String apiKey = props.getStripe().getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("Stripe apiKey is blank — using placeholder client; real calls will fail");
+            apiKey = "sk_test_placeholder";
+        }
+        this.stripeClient = new StripeClient(apiKey);
+    }
 
     @Override
     public PaymentResult process(PaymentRequest request) {
-        log.info("Processing Stripe payment for order={} amount={} {}",
-                request.getOrderId(), request.getAmount(), request.getCurrency());
+        try {
+            long amountCents = request.getAmount().multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP)
+                    .longValue();
 
-        // TODO: Integrate with Stripe API — currently returns mock success
-        String chargeId = "ch_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+            PaymentIntentCreateParams params = PaymentIntentCreateParams.builder().setAmount(amountCents)
+                    .setCurrency(request.getCurrency().toLowerCase()).setConfirm(true)
+                    .setAutomaticPaymentMethods(PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
+                            .setEnabled(true)
+                            .setAllowRedirects(PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
+                            .build())
+                    .putMetadata("orderId", request.getOrderId()).putMetadata("paymentId", request.getPaymentId())
+                    .build();
 
-        return PaymentResult.builder()
-                .success(true)
-                .providerRef(chargeId)
-                .providerResponse(Map.of(
-                        "provider", "stripe",
-                        "chargeId", chargeId,
-                        "status", "succeeded"))
-                .build();
+            PaymentIntent intent = stripeClient.paymentIntents().create(params);
+            boolean succeeded = "succeeded".equals(intent.getStatus());
+
+            return PaymentResult.builder().success(succeeded).providerRef(intent.getId())
+                    .providerResponse(
+                            Map.of("provider", "stripe", "intentId", intent.getId(), "status", intent.getStatus()))
+                    .errorMessage(succeeded
+                            ? null
+                            : intent.getLastPaymentError() != null
+                                    ? intent.getLastPaymentError().getMessage()
+                                    : "Payment failed")
+                    .build();
+
+        } catch (StripeException e) {
+            log.error("Stripe payment failed for orderId={}: {}", request.getOrderId(), e.getMessage());
+            return PaymentResult.builder().success(false).errorMessage(e.getMessage()).build();
+        }
     }
 
     @Override
     public RefundResult refund(RefundRequest request) {
-        log.info("Processing Stripe refund for paymentId={} amount={}",
-                request.getPaymentId(), request.getAmount());
+        try {
+            long amountCents = request.getAmount().multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP)
+                    .longValue();
 
-        String refundId = "re_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+            RefundCreateParams params = RefundCreateParams.builder().setPaymentIntent(request.getProviderRef())
+                    .setAmount(amountCents).setReason(RefundCreateParams.Reason.REQUESTED_BY_CUSTOMER).build();
 
-        return RefundResult.builder()
-                .success(true)
-                .providerRef(refundId)
-                .build();
+            Refund refund = stripeClient.refunds().create(params);
+            boolean succeeded = "succeeded".equals(refund.getStatus());
+
+            return RefundResult.builder().success(succeeded).providerRef(refund.getId())
+                    .errorMessage(succeeded ? null : "Refund failed").build();
+
+        } catch (StripeException e) {
+            log.error("Stripe refund failed for paymentId={}: {}", request.getPaymentId(), e.getMessage());
+            return RefundResult.builder().success(false).errorMessage(e.getMessage()).build();
+        }
     }
 
     @Override

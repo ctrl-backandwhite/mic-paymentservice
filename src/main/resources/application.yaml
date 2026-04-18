@@ -39,12 +39,25 @@ logging:
     level:
         com.backandwhite: DEBUG
 
-# --- OAuth2 Resource Server (opt-in) ---
-# To enable JWT validation, uncomment and set OAUTH2_ISSUER_URI + OAUTH2_JWK_SET_URI env vars
-#spring:
-#    security:
-#        oauth2:
-#            resourceserver:
-#                jwt:
-#                    issuer-uri: ${OAUTH2_ISSUER_URI:http://localhost:6001}
-#                    jwk-set-uri: ${OAUTH2_JWK_SET_URI:http://localhost:6001/oauth2/jwks}
+---
+spring:
+    security:
+        oauth2:
+            resourceserver:
+                jwt:
+                    issuer-uri: ${JWT_ISSUER_URI:http://localhost:9000}
+
+payment:
+    stripe:
+        api-key: ${STRIPE_API_KEY:}
+        webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+    paypal:
+        client-id: ${PAYPAL_CLIENT_ID:}
+        client-secret: ${PAYPAL_CLIENT_SECRET:}
+        base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
+    crypto:
+        provider: coinbase
+        coinbase:
+            api-key: ${COINBASE_API_KEY:}
+            webhook-secret: ${COINBASE_WEBHOOK_SECRET:}
+            base-url: ${COINBASE_BASE_URL:https://api.commerce.coinbase.com}
