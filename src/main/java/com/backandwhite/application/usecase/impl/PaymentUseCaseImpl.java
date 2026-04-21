@@ -61,6 +61,48 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     private final PaymentGatewayProperties gatewayProperties;
     private final CoinbaseCommerceClient coinbaseClient;
 
+    /**
+     * When {@code true}, skip the real payment gateway (Stripe / PayPal / Coinbase)
+     * and synthesise a successful {@link PaymentResult}. The rest of the flow runs
+     * exactly as in production: ledger inbound is recorded, snapshots persisted, CJ
+     * pipeline kicked off (which itself can be in mock mode). Useful to drive
+     * end-to-end tests without actually moving money.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.payment.mock-mode:false}")
+    private boolean paymentMockModeFlag;
+
+    /**
+     * Effective mock mode — the explicit flag wins; if not set, we fall back to
+     * "mock on" whenever all the real-gateway credentials are absent, so a
+     * developer who boots without Stripe/PayPal keys doesn't get mysterious
+     * "Invalid API Key" emails for every test checkout.
+     */
+    private boolean paymentMockMode() {
+        if (paymentMockModeFlag)
+            return true;
+        String stripe = gatewayProperties.getStripe().getApiKey();
+        String paypal = gatewayProperties.getPaypal().getClientSecret();
+        String coinbase = gatewayProperties.getCrypto().getCoinbase().getApiKey();
+        boolean anyRealKey = (stripe != null && !stripe.isBlank()) || (paypal != null && !paypal.isBlank())
+                || (coinbase != null && !coinbase.isBlank());
+        return !anyRealKey;
+    }
+
+    @jakarta.annotation.PostConstruct
+    void logMockState() {
+        boolean effective = paymentMockMode();
+        if (effective) {
+            log.warn("╔═══════════════════════════════════════════════════════════════╗");
+            log.warn("║  PAYMENT MOCK MODE ACTIVE — no real charges will be made.   ║");
+            log.warn("║  Flag app.payment.mock-mode={} (auto={})", paymentMockModeFlag, !paymentMockModeFlag);
+            log.warn("║  Set PAYMENT_MOCK_MODE=false + configure STRIPE_API_KEY     ║");
+            log.warn("║  to use real gateways.                                      ║");
+            log.warn("╚═══════════════════════════════════════════════════════════════╝");
+        } else {
+            log.info("::> Payment mock mode DISABLED — real gateways will be called.");
+        }
+    }
+
     @Override
     @Transactional
     public Payment processPayment(String orderId, String userId, String email, Money amount, String currency,
@@ -102,10 +144,20 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         paymentEventPort.publishPaymentInitiated(paymentId, orderId, userId, amount.toPlainString(), displayCurrency,
                 method.name(), gwName);
 
-        // Send settlement amount/currency to the gateway
-        PaymentResult result = gateway.process(PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId)
-                .userId(userId).amount(settlementAmount.getAmount()).currency(settlementCurrency).method(method)
-                .idempotencyKey(idempotencyKey).build());
+        // Mock-mode short-circuit: skip the real gateway call but keep the rest of
+        // the flow identical — downstream (order service) cannot tell the difference.
+        PaymentResult result;
+        if (paymentMockMode()) {
+            String mockRef = "mock_" + gwName + "_" + java.util.UUID.randomUUID();
+            log.warn("::> PAYMENT MOCK MODE — skipping real gateway, synthesising success ref={}", mockRef);
+            result = PaymentResult.builder().success(true).providerRef(mockRef)
+                    .providerResponse(java.util.Map.of("mockMode", true, "gateway", gwName)).build();
+        } else {
+            // Send settlement amount/currency to the gateway
+            result = gateway.process(PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId).userId(userId)
+                    .amount(settlementAmount.getAmount()).currency(settlementCurrency).method(method)
+                    .idempotencyKey(idempotencyKey).build());
+        }
 
         if (result.isSuccess()) {
             payment = payment.withStatus(PaymentStatus.COMPLETED).withProviderRef(result.getProviderRef())
@@ -114,16 +166,24 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
             final String gw = gwName;
             paymentEventPort.publishPaymentConfirmed(completed.getId(), orderId, userId, email, amount.toPlainString(),
                     completed.getCurrency(), method.name(), gw, result.getProviderRef());
-        } else {
-            payment = payment.withStatus(PaymentStatus.FAILED).withErrorMessage(result.getErrorMessage())
-                    .withProviderResponse(result.getProviderResponse());
-            final Payment failed = payment;
-            final String gw = gwName;
-            paymentEventPort.publishPaymentFailed(failed.getId(), orderId, userId, email, amount.toPlainString(),
-                    result.getErrorMessage(), gw);
+            return repository.update(payment);
         }
 
-        return repository.update(payment);
+        // Gateway rejected the payment — persist the FAILED row, fire the
+        // event so the order service can compensate asynchronously, and then
+        // throw so the HTTP caller sees a 4xx. The frontend needs this to
+        // stop the checkout flow before it fires confirmOrder on a doomed
+        // order. Returning 200 + status=FAILED invited a nasty race where
+        // the consumer cancelled the order mid-confirm.
+        payment = payment.withStatus(PaymentStatus.FAILED).withErrorMessage(result.getErrorMessage())
+                .withProviderResponse(result.getProviderResponse());
+        final Payment failed = payment;
+        final String gw = gwName;
+        paymentEventPort.publishPaymentFailed(failed.getId(), orderId, userId, email, amount.toPlainString(),
+                result.getErrorMessage(), gw);
+        repository.update(payment);
+        throw PAYMENT_NOT_COMPLETED.toBusinessException(orderId,
+                result.getErrorMessage() != null ? result.getErrorMessage() : "Gateway rejected the payment");
     }
 
     @Override
@@ -304,14 +364,59 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         if (signature == null || signature.isBlank()) {
             throw new ArgumentException("SE001", "Missing Stripe-Signature header");
         }
+        com.stripe.model.Event event;
         try {
-            com.stripe.model.Event event = Webhook.constructEvent(payload, signature,
-                    gatewayProperties.getStripe().getWebhookSecret());
-            log.info("Stripe webhook event type={}", event.getType());
+            event = Webhook.constructEvent(payload, signature, gatewayProperties.getStripe().getWebhookSecret());
+            log.info("Stripe webhook event type={} id={}", event.getType(), event.getId());
         } catch (SignatureVerificationException e) {
             log.warn("Invalid Stripe webhook signature: {}", e.getMessage());
             throw new ArgumentException("SE002", "Invalid Stripe webhook signature");
         }
+
+        // Only act on PaymentIntent confirmations — other event types are logged and
+        // ignored. Async flows (3DS redirects, delayed capture) land here and drive
+        // the order from PENDING → COMPLETED via the same Kafka event as the
+        // synchronous path, so the order service consumer can reconcile uniformly.
+        if (!"payment_intent.succeeded".equals(event.getType())) {
+            return;
+        }
+
+        var deserializer = event.getDataObjectDeserializer();
+        var dataObject = deserializer != null
+                ? deserializer.getObject()
+                : java.util.Optional.<com.stripe.model.StripeObject>empty();
+        if (dataObject.isEmpty() || !(dataObject.get() instanceof com.stripe.model.PaymentIntent pi)) {
+            log.warn("Stripe webhook payment_intent.succeeded missing deserialised object");
+            return;
+        }
+
+        String orderId = pi.getMetadata() != null ? pi.getMetadata().get("orderId") : null;
+        if (orderId == null || orderId.isBlank()) {
+            log.warn("Stripe payment_intent.succeeded has no metadata.orderId — cannot correlate");
+            return;
+        }
+
+        Payment payment = repository.findByOrderId(orderId).orElse(null);
+        if (payment == null) {
+            log.warn("Stripe payment_intent.succeeded for orderId={} but no local Payment row exists", orderId);
+            return;
+        }
+        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+            log.info("Stripe webhook duplicate: payment {} already COMPLETED", payment.getId());
+            return;
+        }
+
+        payment = payment.withStatus(PaymentStatus.COMPLETED).withProviderRef(pi.getId());
+        repository.update(payment);
+
+        BigDecimal amount = payment.getAmount() != null && payment.getAmount().getAmount() != null
+                ? payment.getAmount().getAmount()
+                : BigDecimal.ZERO;
+        paymentEventPort.publishPaymentConfirmed(payment.getId(), orderId, payment.getUserId(), null,
+                amount.toPlainString(), payment.getCurrency(),
+                payment.getPaymentMethod() != null ? payment.getPaymentMethod().name() : "CARD", "stripe", pi.getId());
+        log.info("::> Stripe async confirmation published PaymentConfirmed for orderId={} paymentId={}", orderId,
+                payment.getId());
     }
 
     private void handlePayPalWebhook(String payload, String signature) {

@@ -100,6 +100,32 @@ class PaymentUseCaseImplTest {
     }
 
     @Test
+    void processPayment_mockModeOn_skipsRealGatewayAndMarksCompleted() throws Exception {
+        // Flip app.payment.mock-mode via reflection (same as env
+        // PAYMENT_MOCK_MODE=true)
+        java.lang.reflect.Field f = useCase.getClass().getDeclaredField("paymentMockModeFlag");
+        f.setAccessible(true);
+        f.setBoolean(useCase, true);
+
+        when(currencyRouter.resolveSettlementCurrency(PaymentMethod.CARD)).thenReturn("USD");
+        Payment saved = Payment.builder().id("pay-mock").orderId("o-mock").userId("u").amount(Money.of(BigDecimal.TEN))
+                .currency("USD").status(PaymentStatus.PROCESSING).paymentMethod(PaymentMethod.CARD).build();
+        when(repository.save(any(Payment.class))).thenReturn(saved);
+        when(repository.update(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Payment result = useCase.processPayment("o-mock", "u", "e@x", Money.of(BigDecimal.TEN), "USD",
+                PaymentMethod.CARD, null);
+
+        assertThat(result.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(result.getProviderRef()).startsWith("mock_");
+        // Real gateway must NOT be called in mock mode
+        verify(cardGateway, never()).process(any(PaymentRequest.class));
+        // PaymentConfirmed still fires so the order service consumer runs end-to-end
+        verify(eventPort).publishPaymentConfirmed(anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
     void processPayment_card_sameCurrency_success() {
         when(currencyRouter.resolveSettlementCurrency(PaymentMethod.CARD)).thenReturn("USD");
         Payment saved = Payment.builder().id("pay-1").orderId("o1").userId("u1").amount(Money.of(BigDecimal.TEN))
@@ -154,7 +180,7 @@ class PaymentUseCaseImplTest {
     }
 
     @Test
-    void processPayment_gatewayFails_setsFailed() {
+    void processPayment_gatewayFails_throwsBusinessExceptionAndPublishesFailed() {
         when(currencyRouter.resolveSettlementCurrency(PaymentMethod.CARD)).thenReturn("USD");
         Payment saved = Payment.builder().id("p").orderId("o").userId("u").amount(Money.of(BigDecimal.TEN))
                 .currency("USD").status(PaymentStatus.PROCESSING).paymentMethod(PaymentMethod.CARD).build();
@@ -163,10 +189,12 @@ class PaymentUseCaseImplTest {
         when(cardGateway.process(any(PaymentRequest.class))).thenReturn(PaymentResult.builder().success(false)
                 .errorMessage("declined").providerResponse(Map.of("err", "1")).build());
 
-        Payment result = useCase.processPayment("o", "u", "e@x", Money.of(BigDecimal.TEN), "USD", PaymentMethod.CARD,
-                null);
-        assertThat(result.getStatus()).isEqualTo(PaymentStatus.FAILED);
-        assertThat(result.getErrorMessage()).isEqualTo("declined");
+        // Gateway rejection must surface as a BusinessException so the HTTP
+        // caller (checkout) stops and does NOT proceed to confirmOrder.
+        // The PaymentFailed Kafka event still has to be published so the
+        // order service can compensate asynchronously.
+        assertThatThrownBy(() -> useCase.processPayment("o", "u", "e@x", Money.of(BigDecimal.TEN), "USD",
+                PaymentMethod.CARD, null)).isInstanceOf(BusinessException.class);
         verify(eventPort).publishPaymentFailed(anyString(), anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString());
     }
