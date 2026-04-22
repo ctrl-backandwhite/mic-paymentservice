@@ -16,8 +16,8 @@ class PaymentCurrencyRouterTest {
     }
 
     @Test
-    void resolveSettlementCurrency_card_returnsUsdt() {
-        assertThat(router.resolveSettlementCurrency(PaymentMethod.CARD)).isEqualTo("USDT");
+    void resolveSettlementCurrency_card_returnsUsd() {
+        assertThat(router.resolveSettlementCurrency(PaymentMethod.CARD)).isEqualTo("USD");
     }
 
     @Test
@@ -47,7 +47,7 @@ class PaymentCurrencyRouterTest {
 
     @Test
     void requiresConversion_caseInsensitive() {
-        assertThat(router.requiresConversion("usdt", PaymentMethod.CARD)).isFalse();
+        assertThat(router.requiresConversion("usd", PaymentMethod.CARD)).isFalse();
     }
 
     @Test

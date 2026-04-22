@@ -9,8 +9,13 @@ import java.util.Map;
 
 public interface PaymentUseCase {
 
+    default Payment processPayment(String orderId, String userId, String email, Money amount, String currency,
+            PaymentMethod method, String idempotencyKey) {
+        return processPayment(orderId, userId, email, amount, currency, method, idempotencyKey, null);
+    }
+
     Payment processPayment(String orderId, String userId, String email, Money amount, String currency,
-            PaymentMethod method, String idempotencyKey);
+            PaymentMethod method, String idempotencyKey, String stripePaymentMethodId);
 
     Payment findById(String id);
 

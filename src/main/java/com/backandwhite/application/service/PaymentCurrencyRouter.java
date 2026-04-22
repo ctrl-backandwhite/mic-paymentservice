@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
  * <p>
  * Business rules:
  * <ul>
- * <li>CARD → settle in USDT (Stripe charges converted to USDT)</li>
+ * <li>CARD → settle in USD (Stripe card flow)</li>
  * <li>PAYPAL → settle in USD (PayPal native currency)</li>
  * <li>USDT → settle in USDT (direct crypto)</li>
  * <li>BTC → settle in BTC (direct crypto)</li>
@@ -26,7 +26,7 @@ public class PaymentCurrencyRouter {
      */
     public String resolveSettlementCurrency(PaymentMethod method) {
         return switch (method) {
-            case CARD -> "USDT";
+            case CARD -> "USD";
             case PAYPAL -> "USD";
             case USDT -> "USDT";
             case BTC -> "BTC";

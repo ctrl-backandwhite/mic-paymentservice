@@ -72,6 +72,7 @@ class PaymentUseCaseImplTest {
         currencyRouter = mock(PaymentCurrencyRouter.class);
         rateCache = mock(CurrencyRateCache.class);
         gatewayProps = new PaymentGatewayProperties();
+        gatewayProps.getStripe().setApiKey("sk_test_card_only");
         gatewayProps.getStripe().setWebhookSecret("whsec_test");
         gatewayProps.getPaypal().setClientSecret("paypal-secret");
         gatewayProps.getCrypto().getCoinbase().setWebhookSecret("coinbase-secret");
@@ -127,27 +128,31 @@ class PaymentUseCaseImplTest {
 
     @Test
     void processPayment_card_sameCurrency_success() {
+        // CARD always uses mock mode without a prepared payment method token from
+        // frontend
         when(currencyRouter.resolveSettlementCurrency(PaymentMethod.CARD)).thenReturn("USD");
         Payment saved = Payment.builder().id("pay-1").orderId("o1").userId("u1").amount(Money.of(BigDecimal.TEN))
                 .currency("USD").status(PaymentStatus.PROCESSING).paymentMethod(PaymentMethod.CARD).build();
         when(repository.save(any(Payment.class))).thenReturn(saved);
         when(repository.update(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(cardGateway.process(any(PaymentRequest.class))).thenReturn(
-                PaymentResult.builder().success(true).providerRef("ref-1").providerResponse(Map.of("x", "y")).build());
 
         Payment result = useCase.processPayment("o1", "u1", "e@x", Money.of(BigDecimal.TEN), "USD", PaymentMethod.CARD,
                 null);
 
         assertThat(result.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
-        assertThat(result.getProviderRef()).isEqualTo("ref-1");
+        // Mock ref format: mock_<gateway>_<uuid>
+        assertThat(result.getProviderRef()).startsWith("mock_");
         verify(eventPort).publishPaymentInitiated(anyString(), anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString());
         verify(eventPort).publishPaymentConfirmed(anyString(), anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString(), anyString(), anyString());
+        // Verify cardGateway was NOT called (mock mode)
+        verify(cardGateway, never()).process(any());
     }
 
     @Test
     void processPayment_card_differentCurrency_usesExchangeRate() {
+        // Test currency conversion with CARD (which always uses mock without token)
         when(currencyRouter.resolveSettlementCurrency(PaymentMethod.CARD)).thenReturn("USDT");
         when(rateCache.getRate("EUR")).thenReturn(new BigDecimal("0.92"));
         when(rateCache.getRate("USD")).thenReturn(BigDecimal.ONE);
@@ -156,12 +161,12 @@ class PaymentUseCaseImplTest {
                 .paymentMethod(PaymentMethod.CARD).build();
         when(repository.save(any(Payment.class))).thenReturn(saved);
         when(repository.update(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(cardGateway.process(any(PaymentRequest.class)))
-                .thenReturn(PaymentResult.builder().success(true).providerRef("ref").build());
 
         Payment result = useCase.processPayment("o", "u", "e", Money.of(new BigDecimal("10.00")), "EUR",
                 PaymentMethod.CARD, null);
         assertThat(result.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        // CARD is mock, so verify gateway was not called
+        verify(cardGateway, never()).process(any());
     }
 
     @Test
@@ -181,12 +186,13 @@ class PaymentUseCaseImplTest {
 
     @Test
     void processPayment_gatewayFails_throwsBusinessExceptionAndPublishesFailed() {
-        when(currencyRouter.resolveSettlementCurrency(PaymentMethod.CARD)).thenReturn("USD");
+        // Test real gateway failure using PayPal (CARD is always mock without token)
+        when(currencyRouter.resolveSettlementCurrency(PaymentMethod.PAYPAL)).thenReturn("USD");
         Payment saved = Payment.builder().id("p").orderId("o").userId("u").amount(Money.of(BigDecimal.TEN))
-                .currency("USD").status(PaymentStatus.PROCESSING).paymentMethod(PaymentMethod.CARD).build();
+                .currency("USD").status(PaymentStatus.PROCESSING).paymentMethod(PaymentMethod.PAYPAL).build();
         when(repository.save(any(Payment.class))).thenReturn(saved);
         when(repository.update(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(cardGateway.process(any(PaymentRequest.class))).thenReturn(PaymentResult.builder().success(false)
+        when(paypalGateway.process(any(PaymentRequest.class))).thenReturn(PaymentResult.builder().success(false)
                 .errorMessage("declined").providerResponse(Map.of("err", "1")).build());
 
         // Gateway rejection must surface as a BusinessException so the HTTP
@@ -194,7 +200,7 @@ class PaymentUseCaseImplTest {
         // The PaymentFailed Kafka event still has to be published so the
         // order service can compensate asynchronously.
         assertThatThrownBy(() -> useCase.processPayment("o", "u", "e@x", Money.of(BigDecimal.TEN), "USD",
-                PaymentMethod.CARD, null)).isInstanceOf(BusinessException.class);
+                PaymentMethod.PAYPAL, null)).isInstanceOf(BusinessException.class);
         verify(eventPort).publishPaymentFailed(anyString(), anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString());
     }
@@ -421,13 +427,12 @@ class PaymentUseCaseImplTest {
                 .status(PaymentStatus.PENDING).build();
         when(repository.save(any(Payment.class))).thenReturn(saved);
         when(repository.update(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(cryptoGateway.process(any(PaymentRequest.class))).thenReturn(PaymentResult.builder().success(true)
-                .providerRef("CHRG-1").cryptoAddress("addr").qrCodeUrl("url").build());
 
         Payment result = useCase.createCryptoPayment("o", "u", Money.of(new BigDecimal("10.00")), "USDT",
                 PaymentMethod.USDT);
-        assertThat(result.getProviderRef()).isEqualTo("CHRG-1");
-        assertThat(result.getCryptoAddress()).isEqualTo("addr");
+        assertThat(result.getProviderRef()).startsWith("mock_");
+        assertThat(result.getCryptoAddress()).startsWith("mock_usdt");
+        verify(cryptoGateway, never()).process(any(PaymentRequest.class));
     }
 
     @Test
@@ -439,12 +444,11 @@ class PaymentUseCaseImplTest {
                 .currency("USD").paymentMethod(PaymentMethod.BTC).status(PaymentStatus.PENDING).build();
         when(repository.save(any(Payment.class))).thenReturn(saved);
         when(repository.update(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(cryptoGateway.process(any(PaymentRequest.class))).thenReturn(
-                PaymentResult.builder().success(true).providerRef("C").cryptoAddress("a").qrCodeUrl("u").build());
 
         Payment result = useCase.createCryptoPayment("o", "u", Money.of(new BigDecimal("100.00")), "USD",
                 PaymentMethod.BTC);
-        assertThat(result).isNotNull();
+        assertThat(result.getProviderRef()).startsWith("mock_");
+        assertThat(result.getCryptoAddress()).startsWith("mock_btc");
     }
 
     @Test
@@ -455,11 +459,10 @@ class PaymentUseCaseImplTest {
                 .currency("USD").paymentMethod(PaymentMethod.USDT).build();
         when(repository.save(any(Payment.class))).thenReturn(saved);
         when(repository.update(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(cryptoGateway.process(any(PaymentRequest.class)))
-                .thenReturn(PaymentResult.builder().success(true).providerRef("C").build());
 
         Payment result = useCase.createCryptoPayment("o", "u", Money.of(BigDecimal.TEN), null, PaymentMethod.USDT);
-        assertThat(result).isNotNull();
+        assertThat(result.getCurrency()).isEqualTo("USD");
+        assertThat(result.getProviderRef()).startsWith("mock_");
     }
 
     // -------- verifyCryptoPayment --------

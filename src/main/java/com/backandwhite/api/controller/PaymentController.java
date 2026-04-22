@@ -45,7 +45,8 @@ public class PaymentController {
     public ResponseEntity<PaymentDtoOut> processPayment(@RequestHeader(AppConstants.HEADER_NX036_AUTH) String nxAuth,
             @Valid @RequestBody PaymentProcessDtoIn dto) {
         Payment payment = useCase.processPayment(dto.getOrderId(), dto.getUserId(), dto.getEmail(),
-                Money.of(dto.getAmount()), dto.getCurrency(), dto.getPaymentMethod(), dto.getIdempotencyKey());
+                Money.of(dto.getAmount()), dto.getCurrency(), dto.getPaymentMethod(), dto.getIdempotencyKey(),
+                dto.getStripePaymentMethodId());
         return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toDto(payment));
     }
 

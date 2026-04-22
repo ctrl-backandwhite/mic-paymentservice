@@ -34,4 +34,10 @@ public class PaymentProcessDtoIn {
     private PaymentMethod paymentMethod;
 
     private String idempotencyKey;
+
+    /**
+     * Stripe PaymentMethod token (pm_xxx) created by Stripe.js on frontend.
+     * Required to perform real CARD charges against Stripe.
+     */
+    private String stripePaymentMethodId;
 }

@@ -48,7 +48,7 @@ class PaymentControllerTest {
         Payment p = Payment.builder().id("p-1").build();
         PaymentDtoOut dto = PaymentDtoOut.builder().id("p-1").build();
         when(useCase.processPayment(anyString(), anyString(), any(), any(Money.class), anyString(),
-                any(PaymentMethod.class), any())).thenReturn(p);
+                any(PaymentMethod.class), any(), any())).thenReturn(p);
         when(mapper.toDto(p)).thenReturn(dto);
 
         PaymentProcessDtoIn input = PaymentProcessDtoIn.builder().orderId("o").userId("u").email("e@x")

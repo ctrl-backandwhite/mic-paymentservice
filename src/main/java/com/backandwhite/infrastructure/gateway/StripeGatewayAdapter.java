@@ -42,15 +42,22 @@ public class StripeGatewayAdapter implements PaymentGateway {
     @Override
     public PaymentResult process(PaymentRequest request) {
         try {
+            // Validate that payment method token is provided
+            if (request.getStripePaymentMethodId() == null || request.getStripePaymentMethodId().isBlank()) {
+                log.error("Stripe payment failed for orderId={}: Missing stripePaymentMethodId", request.getOrderId());
+                return PaymentResult.builder().success(false)
+                        .errorMessage("Payment method token is required for Stripe CARD payments").build();
+            }
+
             long amountCents = request.getAmount().multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP)
                     .longValue();
 
+            // Create and confirm PaymentIntent WITH the payment method ID from Stripe.js
             PaymentIntentCreateParams params = PaymentIntentCreateParams.builder().setAmount(amountCents)
-                    .setCurrency(request.getCurrency().toLowerCase()).setConfirm(true)
-                    .setAutomaticPaymentMethods(PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
-                            .setEnabled(true)
-                            .setAllowRedirects(PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
-                            .build())
+                    .setCurrency(request.getCurrency().toLowerCase())
+                    .setPaymentMethod(request.getStripePaymentMethodId()) // Associate payment method
+                    .setConfirm(true) // Confirm immediately with the payment method
+                    .setReturnUrl("http://localhost:9000/checkout?status=complete") // For SCA/3D Secure
                     .putMetadata("orderId", request.getOrderId()).putMetadata("paymentId", request.getPaymentId())
                     .build();
 

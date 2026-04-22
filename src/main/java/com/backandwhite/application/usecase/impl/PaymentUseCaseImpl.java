@@ -72,41 +72,75 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     private boolean paymentMockModeFlag;
 
     /**
-     * Effective mock mode — the explicit flag wins; if not set, we fall back to
-     * "mock on" whenever all the real-gateway credentials are absent, so a
-     * developer who boots without Stripe/PayPal keys doesn't get mysterious
-     * "Invalid API Key" emails for every test checkout.
+     * Effective mock mode by payment method.
+     *
+     * Business logic: - CARD payment: Real gateway ONLY if both (a) Stripe API key
+     * configured AND (b) PaymentRequest.preparedPaymentMethod = true (frontend sent
+     * a Stripe token). If frontend hasn't prepared a token, fall back to mock to
+     * avoid "PaymentIntent missing payment method" errors. - PAYPAL / USDT / BTC:
+     * Always mock (no outbound real charge).
      */
-    private boolean paymentMockMode() {
-        if (paymentMockModeFlag)
+    private boolean paymentMockMode(PaymentMethod method, PaymentRequest request) {
+        if (paymentMockModeFlag) {
             return true;
-        String stripe = gatewayProperties.getStripe().getApiKey();
-        String paypal = gatewayProperties.getPaypal().getClientSecret();
-        String coinbase = gatewayProperties.getCrypto().getCoinbase().getApiKey();
-        boolean anyRealKey = (stripe != null && !stripe.isBlank()) || (paypal != null && !paypal.isBlank())
-                || (coinbase != null && !coinbase.isBlank());
-        return !anyRealKey;
+        }
+
+        // CARD requires both Stripe API key AND a prepared payment method token from
+        // frontend
+        if (method == PaymentMethod.CARD) {
+            boolean stripeConfigured = hasText(gatewayProperties.getStripe().getApiKey());
+            boolean hasPaymentMethodToken = request != null && hasText(request.getStripePaymentMethodId());
+            if (stripeConfigured && hasPaymentMethodToken) {
+                log.debug("CARD payment: Stripe configured and payment method token present — using real gateway");
+                return false; // Use real gateway
+            }
+            if (!hasPaymentMethodToken) {
+                log.debug("CARD payment: payment method token not provided by frontend — falling back to mock");
+            }
+            return true; // Use mock
+        }
+
+        // PAYPAL / USDT / BTC => always mock (no outbound real charge)
+        return true;
+    }
+
+    /**
+     * Overload for refund/crypto methods where PaymentRequest is not available. For
+     * CARD: always use mock (since we don't have token info in these contexts).
+     */
+    private boolean paymentMockMode(PaymentMethod method) {
+        return paymentMockMode(method, null);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     @jakarta.annotation.PostConstruct
     void logMockState() {
-        boolean effective = paymentMockMode();
-        if (effective) {
+        boolean stripeConfigured = hasText(gatewayProperties.getStripe().getApiKey());
+        if (paymentMockModeFlag) {
             log.warn("╔═══════════════════════════════════════════════════════════════╗");
             log.warn("║  PAYMENT MOCK MODE ACTIVE — no real charges will be made.   ║");
-            log.warn("║  Flag app.payment.mock-mode={} (auto={})", paymentMockModeFlag, !paymentMockModeFlag);
-            log.warn("║  Set PAYMENT_MOCK_MODE=false + configure STRIPE_API_KEY     ║");
-            log.warn("║  to use real gateways.                                      ║");
+            log.warn("║  Flag app.payment.mock-mode=true                             ║");
             log.warn("╚═══════════════════════════════════════════════════════════════╝");
+            return;
+        }
+
+        if (stripeConfigured) {
+            log.info("::> Hybrid payment mode ACTIVE — CARD goes real via Stripe; PAYPAL/USDT/BTC stay mocked.");
         } else {
-            log.info("::> Payment mock mode DISABLED — real gateways will be called.");
+            log.warn("╔═══════════════════════════════════════════════════════════════╗");
+            log.warn("║  STRIPE_API_KEY missing — all methods run in mock mode.     ║");
+            log.warn("║  Configure STRIPE_API_KEY to enable real CARD payments.     ║");
+            log.warn("╚═══════════════════════════════════════════════════════════════╝");
         }
     }
 
     @Override
     @Transactional
     public Payment processPayment(String orderId, String userId, String email, Money amount, String currency,
-            PaymentMethod method, String idempotencyKey) {
+            PaymentMethod method, String idempotencyKey, String stripePaymentMethodId) {
 
         // Idempotency check
         if (idempotencyKey != null) {
@@ -144,19 +178,24 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         paymentEventPort.publishPaymentInitiated(paymentId, orderId, userId, amount.toPlainString(), displayCurrency,
                 method.name(), gwName);
 
+        // Build the payment request (Stripe payment method token is provided by
+        // frontend if available)
+        PaymentRequest paymentRequest = PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId)
+                .userId(userId).amount(settlementAmount.getAmount()).currency(settlementCurrency).method(method)
+                .idempotencyKey(idempotencyKey).stripePaymentMethodId(stripePaymentMethodId).build();
+
         // Mock-mode short-circuit: skip the real gateway call but keep the rest of
         // the flow identical — downstream (order service) cannot tell the difference.
         PaymentResult result;
-        if (paymentMockMode()) {
+        if (paymentMockMode(method, paymentRequest)) {
             String mockRef = "mock_" + gwName + "_" + java.util.UUID.randomUUID();
             log.warn("::> PAYMENT MOCK MODE — skipping real gateway, synthesising success ref={}", mockRef);
             result = PaymentResult.builder().success(true).providerRef(mockRef)
                     .providerResponse(java.util.Map.of("mockMode", true, "gateway", gwName)).build();
         } else {
-            // Send settlement amount/currency to the gateway
-            result = gateway.process(PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId).userId(userId)
-                    .amount(settlementAmount.getAmount()).currency(settlementCurrency).method(method)
-                    .idempotencyKey(idempotencyKey).build());
+            // Send settlement amount/currency to the gateway (with prepared payment method
+            // token)
+            result = gateway.process(paymentRequest);
         }
 
         if (result.isSuccess()) {
@@ -235,8 +274,16 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
 
         PaymentGateway gateway = resolveGateway(payment.getPaymentMethod());
 
-        RefundResult result = gateway.refund(RefundRequest.builder().paymentId(paymentId)
-                .providerRef(payment.getProviderRef()).amount(amount.getAmount()).reason(reason).build());
+        RefundResult result;
+        if (paymentMockMode(payment.getPaymentMethod())) {
+            String mockRef = "mock_refund_" + payment.getPaymentMethod().name().toLowerCase() + "_"
+                    + java.util.UUID.randomUUID();
+            log.warn("::> PAYMENT MOCK MODE — skipping real refund, synthesising success ref={}", mockRef);
+            result = RefundResult.builder().success(true).providerRef(mockRef).build();
+        } else {
+            result = gateway.refund(RefundRequest.builder().paymentId(paymentId).providerRef(payment.getProviderRef())
+                    .amount(amount.getAmount()).reason(reason).build());
+        }
 
         PaymentRefund refund = repository.saveRefund(PaymentRefund.builder().paymentId(paymentId).amount(amount)
                 .status(result.isSuccess() ? RefundStatus.COMPLETED : RefundStatus.FAILED).reason(reason)
@@ -297,9 +344,19 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
                 .exchangeRate(exchangeRate).status(PaymentStatus.PENDING).paymentMethod(method)
                 .cryptoExpiresAt(Instant.now().plus(30, ChronoUnit.MINUTES)).build());
 
-        PaymentResult result = gateway
-                .process(PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId).userId(userId)
-                        .amount(settlementAmount.getAmount()).currency(settlementCurrency).method(method).build());
+        String gwName = gateway.getClass().getSimpleName().replace("GatewayAdapter", "").toLowerCase();
+        PaymentResult result;
+        if (paymentMockMode(method)) {
+            String mockRef = "mock_" + gwName + "_" + java.util.UUID.randomUUID();
+            log.warn("::> PAYMENT MOCK MODE — skipping real crypto gateway, synthesising ref={}", mockRef);
+            result = PaymentResult.builder().success(true).providerRef(mockRef)
+                    .cryptoAddress("mock_" + method.name().toLowerCase() + "_address")
+                    .qrCodeUrl("mock://" + method.name().toLowerCase() + "/" + payment.getId())
+                    .providerResponse(java.util.Map.of("mockMode", true, "gateway", gwName)).build();
+        } else {
+            result = gateway.process(PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId).userId(userId)
+                    .amount(settlementAmount.getAmount()).currency(settlementCurrency).method(method).build());
+        }
 
         payment = payment.withProviderRef(result.getProviderRef()).withCryptoAddress(result.getCryptoAddress())
                 .withQrCodeUrl(result.getQrCodeUrl()).withProviderResponse(result.getProviderResponse());
