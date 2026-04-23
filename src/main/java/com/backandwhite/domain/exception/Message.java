@@ -16,7 +16,9 @@ public enum Message {
                                     "Crypto payment %s has expired"), UNSUPPORTED_PAYMENT_METHOD("PA006",
                                             "Payment method %s is not supported"), PAYMENT_PROCESSING_FAILED("PA007",
                                                     "Payment processing failed: %s"), WEBHOOK_SIGNATURE_INVALID("PA008",
-                                                            "Webhook signature verification failed for provider: %s");
+                                                            "Webhook signature verification failed for provider: %s"), SAVED_CARD_UNUSABLE(
+                                                                    "PA009",
+                                                                    "La tarjeta guardada ya no es válida. Por favor ingresa una nueva.");
 
     private final String code;
     private final String detail;

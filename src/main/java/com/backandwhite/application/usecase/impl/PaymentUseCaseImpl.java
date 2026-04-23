@@ -3,7 +3,9 @@ package com.backandwhite.application.usecase.impl;
 import static com.backandwhite.common.exception.Message.ENTITY_NOT_FOUND;
 import static com.backandwhite.domain.exception.Message.CRYPTO_PAYMENT_EXPIRED;
 import static com.backandwhite.domain.exception.Message.PAYMENT_NOT_COMPLETED;
+import static com.backandwhite.domain.exception.Message.PAYMENT_PROCESSING_FAILED;
 import static com.backandwhite.domain.exception.Message.REFUND_EXCEEDS_AMOUNT;
+import static com.backandwhite.domain.exception.Message.SAVED_CARD_UNUSABLE;
 import static com.backandwhite.domain.exception.Message.UNSUPPORTED_PAYMENT_METHOD;
 
 import com.backandwhite.application.port.out.PaymentEventPort;
@@ -221,8 +223,16 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         paymentEventPort.publishPaymentFailed(failed.getId(), orderId, userId, email, amount.toPlainString(),
                 result.getErrorMessage(), gw);
         repository.update(payment);
-        throw PAYMENT_NOT_COMPLETED.toBusinessException(orderId,
-                result.getErrorMessage() != null ? result.getErrorMessage() : "Gateway rejected the payment");
+        String errorMsg = result.getErrorMessage() != null ? result.getErrorMessage() : "Gateway rejected the payment";
+        // Detect a saved PaymentMethod that Stripe no longer accepts (detached
+        // from Customer). The frontend must drop the stale token and ask the
+        // user to re-enter the card; retrying with the same token is futile.
+        String lower = errorMsg.toLowerCase();
+        if (lower.contains("previously used without being attached") || lower.contains("was detached from a customer")
+                || lower.contains("may not be used again")) {
+            throw SAVED_CARD_UNUSABLE.toBusinessException();
+        }
+        throw PAYMENT_PROCESSING_FAILED.toBusinessException(errorMsg);
     }
 
     @Override
