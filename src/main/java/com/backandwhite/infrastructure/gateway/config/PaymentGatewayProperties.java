@@ -22,6 +22,11 @@ public class PaymentGatewayProperties {
         private String clientId;
         private String clientSecret;
         private String baseUrl = "https://api-m.sandbox.paypal.com";
+        /**
+         * Public URL of the storefront frontend. PayPal redirects the buyer here after
+         * approve/cancel. Set to the real domain in prod.
+         */
+        private String returnBaseUrl = "http://localhost:9000";
     }
 
     @Data

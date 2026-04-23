@@ -16,6 +16,7 @@ import com.backandwhite.common.domain.model.PageResult;
 import com.backandwhite.common.domain.valueobject.Money;
 import com.backandwhite.common.exception.ArgumentException;
 import com.backandwhite.domain.gateway.PaymentGateway;
+import com.backandwhite.domain.gateway.PaymentInitiation;
 import com.backandwhite.domain.gateway.PaymentRequest;
 import com.backandwhite.domain.gateway.PaymentResult;
 import com.backandwhite.domain.gateway.RefundRequest;
@@ -233,6 +234,95 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
             throw SAVED_CARD_UNUSABLE.toBusinessException();
         }
         throw PAYMENT_PROCESSING_FAILED.toBusinessException(errorMsg);
+    }
+
+    @Override
+    @Transactional
+    public PayPalInitiation initiatePayPalPayment(String orderId, String userId, String email, Money amount,
+            String currency, String idempotencyKey) {
+        // Idempotency — reuse an existing initiation if one exists.
+        if (idempotencyKey != null) {
+            Optional<Payment> existing = repository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent() && existing.get().getProviderRef() != null) {
+                log.info("PayPal initiation: returning existing payment for idempotency key={}", idempotencyKey);
+                return new PayPalInitiation(existing.get().getId(), existing.get().getProviderRef(), null);
+            }
+        }
+
+        PaymentGateway gateway = resolveGateway(PaymentMethod.PAYPAL);
+
+        // PayPal settles in USD. Route amount the same way as processPayment.
+        String displayCurrency = currency != null ? currency : "USD";
+        String settlementCurrency = currencyRouter.resolveSettlementCurrency(PaymentMethod.PAYPAL);
+        Money settlementAmount = amount;
+        BigDecimal exchangeRate = BigDecimal.ONE;
+        if (!settlementCurrency.equalsIgnoreCase(displayCurrency)) {
+            exchangeRate = resolveExchangeRate(displayCurrency, settlementCurrency);
+            BigDecimal converted = amount.getAmount().multiply(exchangeRate).setScale(2, RoundingMode.HALF_UP);
+            settlementAmount = Money.of(converted);
+        }
+
+        Payment payment = repository.save(Payment.builder().orderId(orderId).userId(userId).amount(amount)
+                .currency(displayCurrency).settlementAmount(settlementAmount).settlementCurrency(settlementCurrency)
+                .exchangeRate(exchangeRate).status(PaymentStatus.PROCESSING).paymentMethod(PaymentMethod.PAYPAL)
+                .idempotencyKey(idempotencyKey).build());
+
+        paymentEventPort.publishPaymentInitiated(payment.getId(), orderId, userId, amount.toPlainString(),
+                displayCurrency, PaymentMethod.PAYPAL.name(), "paypal");
+
+        PaymentRequest req = PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId).userId(userId)
+                .email(email).amount(settlementAmount.getAmount()).currency(settlementCurrency)
+                .method(PaymentMethod.PAYPAL).idempotencyKey(idempotencyKey).build();
+
+        PaymentInitiation init = gateway.initiate(req);
+        if (!init.isSuccess()) {
+            payment = payment.withStatus(PaymentStatus.FAILED).withErrorMessage(init.getErrorMessage());
+            repository.update(payment);
+            paymentEventPort.publishPaymentFailed(payment.getId(), orderId, userId, email, amount.toPlainString(),
+                    init.getErrorMessage(), "paypal");
+            throw PAYMENT_PROCESSING_FAILED.toBusinessException(init.getErrorMessage());
+        }
+
+        payment = payment.withProviderRef(init.getProviderRef());
+        repository.update(payment);
+        log.info("PayPal initiation: paymentId={} paypalOrderId={}", payment.getId(), init.getProviderRef());
+        return new PayPalInitiation(payment.getId(), init.getProviderRef(), init.getApproveUrl());
+    }
+
+    @Override
+    @Transactional
+    public Payment capturePayPalPayment(String paypalOrderId) {
+        Payment payment = repository.findByProviderRef(paypalOrderId)
+                .orElseThrow(() -> ENTITY_NOT_FOUND.toEntityNotFound("Payment", paypalOrderId));
+
+        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+            log.info("PayPal capture: payment {} already COMPLETED, returning idempotent", payment.getId());
+            return payment;
+        }
+
+        PaymentGateway gateway = resolveGateway(PaymentMethod.PAYPAL);
+        PaymentRequest req = PaymentRequest.builder().paymentId(payment.getId()).orderId(payment.getOrderId())
+                .userId(payment.getUserId()).amount(payment.getSettlementAmount().getAmount())
+                .currency(payment.getSettlementCurrency()).method(PaymentMethod.PAYPAL).build();
+
+        PaymentResult result = gateway.capture(req, paypalOrderId);
+
+        if (result.isSuccess()) {
+            payment = payment.withStatus(PaymentStatus.COMPLETED).withProviderRef(result.getProviderRef())
+                    .withProviderResponse(result.getProviderResponse());
+            paymentEventPort.publishPaymentConfirmed(payment.getId(), payment.getOrderId(), payment.getUserId(), null,
+                    payment.getAmount().toPlainString(), payment.getCurrency(), PaymentMethod.PAYPAL.name(), "paypal",
+                    result.getProviderRef());
+            return repository.update(payment);
+        }
+
+        payment = payment.withStatus(PaymentStatus.FAILED).withErrorMessage(result.getErrorMessage())
+                .withProviderResponse(result.getProviderResponse());
+        paymentEventPort.publishPaymentFailed(payment.getId(), payment.getOrderId(), payment.getUserId(), null,
+                payment.getAmount().toPlainString(), result.getErrorMessage(), "paypal");
+        repository.update(payment);
+        throw PAYMENT_PROCESSING_FAILED.toBusinessException(
+                result.getErrorMessage() != null ? result.getErrorMessage() : "PayPal capture rejected");
     }
 
     @Override

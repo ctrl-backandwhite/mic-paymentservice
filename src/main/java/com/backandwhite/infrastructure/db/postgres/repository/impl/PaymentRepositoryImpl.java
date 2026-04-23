@@ -54,6 +54,11 @@ public class PaymentRepositoryImpl implements PaymentRepository {
     }
 
     @Override
+    public Optional<Payment> findByProviderRef(String providerRef) {
+        return jpaRepository.findByProviderRef(providerRef).map(mapper::toDomain);
+    }
+
+    @Override
     public Page<Payment> findByUserId(String userId, Pageable pageable) {
         return jpaRepository.findByUserId(userId, pageable).map(mapper::toDomain);
     }

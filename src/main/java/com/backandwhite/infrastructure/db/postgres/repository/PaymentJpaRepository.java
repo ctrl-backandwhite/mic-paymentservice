@@ -16,5 +16,7 @@ public interface PaymentJpaRepository
 
     Optional<PaymentEntity> findByOrderId(String orderId);
 
+    Optional<PaymentEntity> findByProviderRef(String providerRef);
+
     Page<PaymentEntity> findByUserId(String userId, Pageable pageable);
 }

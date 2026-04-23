@@ -34,4 +34,26 @@ public interface PaymentUseCase {
     Payment verifyCryptoPayment(String paymentId);
 
     void handleWebhook(String provider, String payload, String signature);
+
+    /**
+     * Two-step PayPal flow — step 1. Persists the Payment in PROCESSING, creates
+     * the PayPal checkout order, and returns the provider order id plus the approve
+     * URL. The frontend opens the PayPal buttons popup against that order id; once
+     * the buyer approves, call {@link #capturePayPalPayment}.
+     */
+    PayPalInitiation initiatePayPalPayment(String orderId, String userId, String email, Money amount, String currency,
+            String idempotencyKey);
+
+    /**
+     * Two-step PayPal flow — step 2. Captures the already-approved order, updates
+     * the Payment row and publishes {@code payment.confirmed} (or
+     * {@code payment.failed}).
+     */
+    Payment capturePayPalPayment(String paypalOrderId);
+
+    /**
+     * Output of {@link #initiatePayPalPayment}.
+     */
+    record PayPalInitiation(String paymentId, String paypalOrderId, String approveUrl) {
+    }
 }

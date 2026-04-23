@@ -57,6 +57,7 @@ payment:
         client-id: ${PAYPAL_CLIENT_ID:}
         client-secret: ${PAYPAL_CLIENT_SECRET:}
         base-url: ${PAYPAL_BASE_URL:https://api-m.sandbox.paypal.com}
+        return-base-url: ${PAYPAL_RETURN_BASE_URL:http://localhost:9000}
     crypto:
         provider: coinbase
         coinbase:

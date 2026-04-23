@@ -50,6 +50,37 @@ public class PaymentController {
         return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toDto(payment));
     }
 
+    /**
+     * PayPal two-step flow — step 1: create the PayPal order that the buyer will
+     * approve in the PayPal Buttons popup.
+     */
+    @PostMapping("/paypal/orders")
+    @NxUser
+    public ResponseEntity<Map<String, String>> initiatePayPal(
+            @RequestHeader(AppConstants.HEADER_NX036_AUTH) String nxAuth, @Valid @RequestBody PaymentProcessDtoIn dto) {
+        PaymentUseCase.PayPalInitiation init = useCase.initiatePayPalPayment(dto.getOrderId(), dto.getUserId(),
+                dto.getEmail(), Money.of(dto.getAmount()), dto.getCurrency(), dto.getIdempotencyKey());
+        Map<String, String> body = new HashMap<>();
+        body.put("paymentId", init.paymentId());
+        body.put("paypalOrderId", init.paypalOrderId());
+        if (init.approveUrl() != null) {
+            body.put("approveUrl", init.approveUrl());
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(body);
+    }
+
+    /**
+     * PayPal two-step flow — step 2: capture funds after the buyer approved the
+     * order in the popup. Called by the SDK's onApprove callback.
+     */
+    @PostMapping("/paypal/orders/{paypalOrderId}/capture")
+    @NxUser
+    public ResponseEntity<PaymentDtoOut> capturePayPal(@RequestHeader(AppConstants.HEADER_NX036_AUTH) String nxAuth,
+            @PathVariable String paypalOrderId) {
+        Payment payment = useCase.capturePayPalPayment(paypalOrderId);
+        return ResponseEntity.ok(mapper.toDto(payment));
+    }
+
     @GetMapping("/{id}")
     @NxUser
     public ResponseEntity<PaymentDtoOut> findById(@RequestHeader(AppConstants.HEADER_NX036_AUTH) String nxAuth,

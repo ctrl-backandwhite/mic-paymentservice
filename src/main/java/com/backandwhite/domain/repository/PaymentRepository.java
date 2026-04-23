@@ -19,6 +19,12 @@ public interface PaymentRepository {
 
     Optional<Payment> findByOrderId(String orderId);
 
+    /**
+     * Looks up a Payment by its gateway-side identifier (e.g. PayPal order id).
+     * Used to resolve the webhook/approval callback back to our row.
+     */
+    Optional<Payment> findByProviderRef(String providerRef);
+
     Page<Payment> findByUserId(String userId, Pageable pageable);
 
     Page<Payment> findAll(Map<String, Object> filters, Pageable pageable);
