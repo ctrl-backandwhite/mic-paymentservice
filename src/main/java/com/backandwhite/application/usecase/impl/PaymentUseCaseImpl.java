@@ -181,8 +181,8 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         // Build the payment request (Stripe payment method token is provided by
         // frontend if available)
         PaymentRequest paymentRequest = PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId)
-                .userId(userId).amount(settlementAmount.getAmount()).currency(settlementCurrency).method(method)
-                .idempotencyKey(idempotencyKey).stripePaymentMethodId(stripePaymentMethodId).build();
+                .userId(userId).email(email).amount(settlementAmount.getAmount()).currency(settlementCurrency)
+                .method(method).idempotencyKey(idempotencyKey).stripePaymentMethodId(stripePaymentMethodId).build();
 
         // Mock-mode short-circuit: skip the real gateway call but keep the rest of
         // the flow identical — downstream (order service) cannot tell the difference.
