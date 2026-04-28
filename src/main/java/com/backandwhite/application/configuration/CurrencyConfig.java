@@ -1,5 +1,6 @@
 package com.backandwhite.application.configuration;
 
+import com.backandwhite.common.constants.AppConstants;
 import com.backandwhite.common.currency.CurrencyRateCache;
 import com.backandwhite.common.currency.CurrencyRequestFilter;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,7 +36,14 @@ public class CurrencyConfig implements WebMvcConfigurer {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(3000);
         factory.setReadTimeout(5000);
-        return new RestTemplate(factory);
+        RestTemplate rt = new RestTemplate(factory);
+        // Inter-service calls bypass the gateway, so we set the gateway-issued
+        // header by hand. NxRequestFilter on the CMS side rejects /api/** without it.
+        rt.getInterceptors().add((request, body, execution) -> {
+            request.getHeaders().add(AppConstants.HEADER_NX036_AUTH, "service");
+            return execution.execute(request, body);
+        });
+        return rt;
     }
 
     @Bean
