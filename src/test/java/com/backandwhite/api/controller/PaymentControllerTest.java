@@ -105,7 +105,9 @@ class PaymentControllerTest {
     void findAll_noFilters() {
         PageResult<Payment> result = new PageResult<>(List.of(), 0L, 0, 0, 10, false, false);
         when(useCase.findAll(any(), anyInt(), anyInt(), anyString(), anyBoolean())).thenReturn(result);
-        controller.findAll("auth", null, null, null, 0, 20, "createdAt", false);
+        ResponseEntity<PaginationDtoOut<PaymentDtoOut>> resp = controller.findAll("auth", null, null, null, 0, 20,
+                "createdAt", false);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
@@ -171,5 +173,91 @@ class PaymentControllerTest {
         ResponseEntity<Void> resp = controller.cryptoWebhook("{}", "sig");
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         verify(useCase).handleWebhook("crypto", "{}", "sig");
+    }
+
+    @Test
+    void initiatePayPal_withApproveUrl_includesItInBody() {
+        PaymentUseCase.PayPalInitiation init = new PaymentUseCase.PayPalInitiation("pay-1", "pp-ord-1",
+                "https://approve.paypal/x");
+        when(useCase.initiatePayPalPayment(anyString(), anyString(), any(), any(Money.class), anyString(), any()))
+                .thenReturn(init);
+
+        PaymentProcessDtoIn input = PaymentProcessDtoIn.builder().orderId("o").userId("u").email("e@x")
+                .amount(new BigDecimal("10.00")).currency("USD").paymentMethod(PaymentMethod.PAYPAL).idempotencyKey("i")
+                .build();
+
+        ResponseEntity<java.util.Map<String, String>> resp = controller.initiatePayPal("auth", input);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(resp.getBody()).isNotNull().containsEntry("paymentId", "pay-1")
+                .containsEntry("paypalOrderId", "pp-ord-1").containsEntry("approveUrl", "https://approve.paypal/x");
+    }
+
+    @Test
+    void initiatePayPal_nullApproveUrl_omitsKey() {
+        // Drives the false branch where the controller skips adding approveUrl
+        // when the use-case returned a null URL.
+        PaymentUseCase.PayPalInitiation init = new PaymentUseCase.PayPalInitiation("pay-2", "pp-ord-2", null);
+        when(useCase.initiatePayPalPayment(anyString(), anyString(), any(), any(Money.class), anyString(), any()))
+                .thenReturn(init);
+
+        PaymentProcessDtoIn input = PaymentProcessDtoIn.builder().orderId("o").userId("u").email("e@x")
+                .amount(new BigDecimal("5.00")).currency("USD").paymentMethod(PaymentMethod.PAYPAL).build();
+
+        ResponseEntity<java.util.Map<String, String>> resp = controller.initiatePayPal("auth", input);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(resp.getBody()).isNotNull().containsEntry("paymentId", "pay-2")
+                .containsEntry("paypalOrderId", "pp-ord-2").doesNotContainKey("approveUrl");
+    }
+
+    @Test
+    void capturePayPal_returnsOk() {
+        Payment p = Payment.builder().id("pay-cap").build();
+        when(useCase.capturePayPalPayment("pp-ord-z")).thenReturn(p);
+        when(mapper.toDto(p)).thenReturn(PaymentDtoOut.builder().id("pay-cap").build());
+
+        ResponseEntity<PaymentDtoOut> resp = controller.capturePayPal("auth", "pp-ord-z");
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody().getId()).isEqualTo("pay-cap");
+        verify(useCase).capturePayPalPayment("pp-ord-z");
+    }
+
+    @Test
+    void findAll_returnsBodyWithPayments() {
+        Payment p = Payment.builder().id("p-all").build();
+        PageResult<Payment> result = new PageResult<>(List.of(p), 1L, 1, 0, 10, false, false);
+        when(useCase.findAll(any(), anyInt(), anyInt(), anyString(), anyBoolean())).thenReturn(result);
+        when(mapper.toDto(p)).thenReturn(PaymentDtoOut.builder().id("p-all").build());
+
+        ResponseEntity<PaginationDtoOut<PaymentDtoOut>> resp = controller.findAll("auth", "search", null, null, 0, 20,
+                "createdAt", true);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).isNotNull();
+    }
+
+    @Test
+    void findByUserId_ascendingFlag_passedThrough() {
+        // Covers ascending=true branch with non-default sortBy.
+        Payment p = Payment.builder().id("p-asc").build();
+        PageResult<Payment> result = new PageResult<>(List.of(p), 1L, 1, 0, 5, false, false);
+        when(useCase.findByUserId(eq("u-asc"), anyInt(), anyInt(), anyString(), anyBoolean())).thenReturn(result);
+        when(mapper.toDto(p)).thenReturn(PaymentDtoOut.builder().id("p-asc").build());
+
+        ResponseEntity<PaginationDtoOut<PaymentDtoOut>> resp = controller.findByUserId("auth", "u-asc", 0, 5, "amount",
+                true);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(useCase).findByUserId("u-asc", 0, 5, "amount", true);
+    }
+
+    @Test
+    void findRefunds_ascendingFlag_passedThrough() {
+        PaymentRefund r = PaymentRefund.builder().id("r-asc").build();
+        PageResult<PaymentRefund> result = new PageResult<>(List.of(r), 1L, 1, 0, 5, false, false);
+        when(useCase.findRefunds(eq("p-x"), anyInt(), anyInt(), anyString(), anyBoolean())).thenReturn(result);
+        when(mapper.toRefundDto(r)).thenReturn(PaymentRefundDtoOut.builder().id("r-asc").build());
+
+        ResponseEntity<PaginationDtoOut<PaymentRefundDtoOut>> resp = controller.findRefunds("auth", "p-x", 0, 5,
+                "amount", true);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(useCase).findRefunds("p-x", 0, 5, "amount", true);
     }
 }

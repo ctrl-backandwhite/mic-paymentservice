@@ -14,6 +14,12 @@ public interface PaymentUseCase {
         return processPayment(orderId, userId, email, amount, currency, method, idempotencyKey, null);
     }
 
+    /**
+     * Processes a payment. Has 8 parameters because every field is part of the
+     * public HTTP contract consumed by the checkout endpoint. Refactoring to a DTO
+     * would change the public API, so we suppress S107 here.
+     */
+    @SuppressWarnings("java:S107")
     Payment processPayment(String orderId, String userId, String email, Money amount, String currency,
             PaymentMethod method, String idempotencyKey, String stripePaymentMethodId);
 

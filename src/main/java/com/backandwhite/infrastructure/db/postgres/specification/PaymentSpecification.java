@@ -7,6 +7,14 @@ import org.springframework.data.jpa.domain.Specification;
 
 public final class PaymentSpecification {
 
+    private static final String ORDER_ID = "orderId";
+    private static final String USER_ID = "userId";
+    private static final String STATUS = "status";
+    private static final String PAYMENT_METHOD = "paymentMethod";
+    private static final String SEARCH = "search";
+    private static final String PROVIDER_REF = "providerRef";
+    private static final String IDEMPOTENCY_KEY = "idempotencyKey";
+
     private PaymentSpecification() {
     }
 
@@ -18,30 +26,30 @@ public final class PaymentSpecification {
                 return predicate;
             }
 
-            if (filters.containsKey("search")) {
-                String like = "%" + filters.get("search").toString().toLowerCase() + "%";
+            if (filters.containsKey(SEARCH)) {
+                String like = "%" + filters.get(SEARCH).toString().toLowerCase() + "%";
                 predicate = cb.and(predicate,
-                        cb.or(cb.like(cb.lower(root.get("orderId")), like), cb.like(cb.lower(root.get("userId")), like),
-                                cb.like(cb.lower(root.get("providerRef")), like),
-                                cb.like(cb.lower(root.get("idempotencyKey")), like)));
+                        cb.or(cb.like(cb.lower(root.get(ORDER_ID)), like), cb.like(cb.lower(root.get(USER_ID)), like),
+                                cb.like(cb.lower(root.get(PROVIDER_REF)), like),
+                                cb.like(cb.lower(root.get(IDEMPOTENCY_KEY)), like)));
             }
 
-            if (filters.containsKey("status")) {
+            if (filters.containsKey(STATUS)) {
                 predicate = cb.and(predicate,
-                        cb.equal(root.get("status").as(String.class), filters.get("status").toString()));
+                        cb.equal(root.get(STATUS).as(String.class), filters.get(STATUS).toString()));
             }
 
-            if (filters.containsKey("paymentMethod")) {
+            if (filters.containsKey(PAYMENT_METHOD)) {
                 predicate = cb.and(predicate,
-                        cb.equal(root.get("paymentMethod").as(String.class), filters.get("paymentMethod").toString()));
+                        cb.equal(root.get(PAYMENT_METHOD).as(String.class), filters.get(PAYMENT_METHOD).toString()));
             }
 
-            if (filters.containsKey("userId")) {
-                predicate = cb.and(predicate, cb.equal(root.get("userId"), filters.get("userId").toString()));
+            if (filters.containsKey(USER_ID)) {
+                predicate = cb.and(predicate, cb.equal(root.get(USER_ID), filters.get(USER_ID).toString()));
             }
 
-            if (filters.containsKey("orderId")) {
-                predicate = cb.and(predicate, cb.equal(root.get("orderId"), filters.get("orderId").toString()));
+            if (filters.containsKey(ORDER_ID)) {
+                predicate = cb.and(predicate, cb.equal(root.get(ORDER_ID), filters.get(ORDER_ID).toString()));
             }
 
             return predicate;

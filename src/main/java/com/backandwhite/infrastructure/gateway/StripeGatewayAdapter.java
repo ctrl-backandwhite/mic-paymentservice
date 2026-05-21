@@ -76,15 +76,17 @@ public class StripeGatewayAdapter implements PaymentGateway {
             PaymentIntent intent = stripeClient.paymentIntents().create(paramsBuilder.build());
             boolean succeeded = "succeeded".equals(intent.getStatus());
 
+            String errorMessage = null;
+            if (!succeeded) {
+                errorMessage = intent.getLastPaymentError() != null
+                        ? intent.getLastPaymentError().getMessage()
+                        : "Payment failed";
+            }
+
             return PaymentResult.builder().success(succeeded).providerRef(intent.getId())
                     .providerResponse(
                             Map.of("provider", "stripe", "intentId", intent.getId(), "status", intent.getStatus()))
-                    .errorMessage(succeeded
-                            ? null
-                            : intent.getLastPaymentError() != null
-                                    ? intent.getLastPaymentError().getMessage()
-                                    : "Payment failed")
-                    .build();
+                    .errorMessage(errorMessage).build();
 
         } catch (StripeException e) {
             log.error("Stripe payment failed for orderId={}: {}", request.getOrderId(), e.getMessage());

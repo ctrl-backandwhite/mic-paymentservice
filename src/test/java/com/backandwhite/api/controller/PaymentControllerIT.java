@@ -13,7 +13,7 @@ class PaymentControllerIT extends BaseIntegrationTest {
 
     @Test
     void getAllPayments_withAdminToken_contextLoadsAndResponds() {
-        String adminToken = jwtTestUtil.getToken("admin-user", List.of("ADMIN"));
+        String adminToken = jwtTestUtil.getToken("admin-user", List.of("ROLE_ADMIN"));
 
         webTestClient.get().uri("/api/v1/payments").header("Authorization", adminToken)
                 .header("X-nx036-auth", "internal-test-token").exchange().expectStatus().isOk();

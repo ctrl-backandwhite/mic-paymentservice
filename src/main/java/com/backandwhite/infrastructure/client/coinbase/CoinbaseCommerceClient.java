@@ -17,7 +17,13 @@ public class CoinbaseCommerceClient {
     private static final String CC_VERSION = "2018-03-22";
     private final PaymentGatewayProperties props;
 
-    @SuppressWarnings("unchecked")
+    /**
+     * Creates a Coinbase Commerce charge. {@code cryptoNetwork} is preserved in the
+     * public signature so callers (use-case + tests) keep their compile-time
+     * contract; Coinbase infers the network from the chosen currency at the hosted
+     * checkout, so we don't forward it. Suppress S1172 to keep the API stable.
+     */
+    @SuppressWarnings({"unchecked", "java:S1172"})
     public Map<String, Object> createCharge(String orderId, String paymentId, BigDecimal amount, String currency,
             String cryptoNetwork) {
         RestClient client = buildClient();

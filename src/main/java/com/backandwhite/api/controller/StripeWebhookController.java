@@ -34,12 +34,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class StripeWebhookController {
 
+    private static final String FIELD_METADATA = "metadata";
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
     private final PaymentUseCase paymentUseCase;
 
     @Value("${stripe.webhook-secret:}")
     private String webhookSecret;
-
-    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/stripe")
     public ResponseEntity<String> handleStripeWebhook(HttpServletRequest request) {
@@ -93,13 +94,18 @@ public class StripeWebhookController {
         }
     }
 
+    /**
+     * Catch blocks intentionally return 200 OK so Stripe does not retry the webhook
+     * indefinitely on persistent local errors (idempotency contract).
+     */
+    @SuppressWarnings({"java:S6863", "java:S1874"})
     private ResponseEntity<String> handlePaymentIntentSucceeded(Event event) {
         try {
             // Event.Data is opaque; convert to JsonNode via ObjectMapper
             String dataJson = objectMapper.writeValueAsString(event.getData().getObject());
             JsonNode paymentIntent = objectMapper.readTree(dataJson);
             String intentId = paymentIntent.get("id").asText();
-            JsonNode metadataNode = paymentIntent.get("metadata");
+            JsonNode metadataNode = paymentIntent.get(FIELD_METADATA);
 
             log.info("payment_intent.succeeded: intentId={}", intentId);
 
@@ -117,6 +123,7 @@ public class StripeWebhookController {
         }
     }
 
+    @SuppressWarnings({"java:S6863", "java:S1874"})
     private ResponseEntity<String> handlePaymentIntentFailed(Event event) {
         try {
             // Event.Data is opaque; convert to JsonNode via ObjectMapper
@@ -128,8 +135,8 @@ public class StripeWebhookController {
 
             log.warn("payment_intent.payment_failed: intentId={}, error={}", intentId, errorMsg);
 
-            if (paymentIntent.has("metadata")) {
-                JsonNode metadataNode = paymentIntent.get("metadata");
+            if (paymentIntent.has(FIELD_METADATA)) {
+                JsonNode metadataNode = paymentIntent.get(FIELD_METADATA);
                 String paymentId = metadataNode.get("paymentId").asText();
                 log.warn("  → Payment failed: paymentId={}", paymentId);
                 // Could trigger compensating transaction (cancel order, refund, etc.)
@@ -142,6 +149,7 @@ public class StripeWebhookController {
         }
     }
 
+    @SuppressWarnings({"java:S6863", "java:S1874"})
     private ResponseEntity<String> handleChargeRefunded(Event event) {
         try {
             // Event.Data is opaque; convert to JsonNode via ObjectMapper

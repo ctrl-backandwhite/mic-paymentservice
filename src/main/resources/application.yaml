@@ -19,6 +19,10 @@ spring:
             observation-enabled: true
         template:
             observation-enabled: true
+        properties:
+            schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
+            auto.register.schemas: ${SCHEMA_REGISTRY_AUTO_REGISTER:true}
+            use.latest.version: false
 
 server:
     port: 6007

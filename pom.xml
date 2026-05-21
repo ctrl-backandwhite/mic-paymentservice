@@ -32,13 +32,6 @@
 
     <properties>
         <sonar.organization>ctrl-backandwhite</sonar.organization>
-        <sonar.projectKey>nx036_${project.artifactId}</sonar.projectKey>
-        <sonar.host.url>${env.SONAR_HOST_URL}</sonar.host.url>
-        <sonar.login>${env.SONAR_TOKEN}</sonar.login>
-        <sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
-        <sonar.sources>src/main/java</sonar.sources>
-        <sonar.tests>src/test/java</sonar.tests>
-        <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <dependencyManagement>
@@ -150,30 +143,27 @@
                 <version>0.8.14</version>
                 <configuration>
                     <excludes>
-                        <exclude>**/dto/**</exclude>
-                        <exclude>**/*DtoIn.*</exclude>
-                        <exclude>**/*DtoOut.*</exclude>
-                        <exclude>**/model/**</exclude>
-                        <exclude>**/*Entity.*</exclude>
-                        <exclude>**/MicPaymentserviceApplication.*</exclude>
-                        <exclude>**/configuration/**</exclude>
-                        <exclude>**/*Config.*</exclude>
-                        <exclude>**/*Properties.*</exclude>
-                        <exclude>**/infrastructure/client/**</exclude>
-                        <exclude>**/infrastructure/db/postgres/repository/**</exclude>
-                        <exclude>**/infrastructure/db/postgres/entity/**</exclude>
-                        <exclude>**/infrastructure/db/postgres/specification/**</exclude>
-                        <exclude>**/infrastructure/message/**</exclude>
-                        <exclude>**/*Application.*</exclude>
-                        <exclude>**/valueobject/**</exclude>
+                        <exclude>**/*MapperImpl.class</exclude>
+                        <exclude>**/*MapperImpl$*.class</exclude>
+                        <exclude>**/*Application.class</exclude>
+                        <exclude>**/configuration/**/*</exclude>
+                        <exclude>**/dto/**/*</exclude>
+                        <exclude>**/entity/**/*</exclude>
+                        <exclude>**/document/**/*</exclude>
                     </excludes>
                 </configuration>
                 <executions>
-                    <execution><goals><goal>prepare-agent</goal></goals></execution>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
                     <execution>
                         <id>report</id>
                         <phase>verify</phase>
-                        <goals><goal>report</goal></goals>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

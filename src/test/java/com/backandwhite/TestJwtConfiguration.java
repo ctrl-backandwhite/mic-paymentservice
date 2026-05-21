@@ -36,7 +36,7 @@ public class TestJwtConfiguration {
 
     @Bean
     @Primary
-    public JwtDecoder jwtDecoder() throws Exception {
+    public JwtDecoder jwtDecoder() {
         return NimbusJwtDecoder.withSecretKey(SHARED_KEY.toSecretKey()).build();
     }
 

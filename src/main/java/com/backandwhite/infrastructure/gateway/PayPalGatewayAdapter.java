@@ -23,6 +23,13 @@ import org.springframework.web.client.RestClientException;
 @RequiredArgsConstructor
 public class PayPalGatewayAdapter implements PaymentGateway {
 
+    private static final String HEADER_AUTHORIZATION = "Authorization";
+    private static final String HEADER_CONTENT_TYPE = "Content-Type";
+    private static final String BEARER_PREFIX = "Bearer ";
+    private static final String CONTENT_TYPE_JSON = "application/json";
+    private static final String FIELD_STATUS = "status";
+    private static final String STATUS_COMPLETED = "COMPLETED";
+
     private final PayPalTokenManager tokenManager;
     private final PaymentGatewayProperties props;
 
@@ -57,7 +64,7 @@ public class PayPalGatewayAdapter implements PaymentGateway {
                             "NO_SHIPPING"));
 
             Map<String, Object> orderResp = client.post().uri(baseUrl + "/v2/checkout/orders")
-                    .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
+                    .header(HEADER_AUTHORIZATION, BEARER_PREFIX + token).header(HEADER_CONTENT_TYPE, CONTENT_TYPE_JSON)
                     .header("PayPal-Request-Id", request.getPaymentId()).body(body).retrieve().body(Map.class);
 
             if (orderResp == null) {
@@ -82,19 +89,23 @@ public class PayPalGatewayAdapter implements PaymentGateway {
             String baseUrl = props.getPaypal().getBaseUrl();
             RestClient client = RestClient.create();
 
-            Map<String, Object> captureResp = client.post()
-                    .uri(baseUrl + "/v2/checkout/orders/" + providerRef + "/capture")
-                    .header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
+            // PayPal order IDs are opaque alphanumeric tokens (max ~20 chars). We
+            // strip everything else defensively before composing the URL so a
+            // crafted providerRef cannot reach `/orders/../capture` or inject
+            // path segments (Sonar javasecurity:S7044).
+            String safeRef = providerRef == null ? "" : providerRef.replaceAll("[^A-Za-z0-9_-]", "");
+            Map<String, Object> captureResp = client.post().uri(baseUrl + "/v2/checkout/orders/" + safeRef + "/capture")
+                    .header(HEADER_AUTHORIZATION, BEARER_PREFIX + token).header(HEADER_CONTENT_TYPE, CONTENT_TYPE_JSON)
                     .body(Map.of()).retrieve().body(Map.class);
 
             if (captureResp == null) {
                 throw new IllegalStateException("Empty PayPal capture response");
             }
 
-            String status = (String) captureResp.get("status");
-            boolean completed = "COMPLETED".equals(status);
+            String status = (String) captureResp.get(FIELD_STATUS);
+            boolean completed = STATUS_COMPLETED.equals(status);
             return PaymentResult.builder().success(completed).providerRef(providerRef)
-                    .providerResponse(Map.of("provider", "paypal", "orderId", providerRef, "status", status))
+                    .providerResponse(Map.of("provider", "paypal", "orderId", providerRef, FIELD_STATUS, status))
                     .errorMessage(completed ? null : "PayPal capture status: " + status).build();
 
         } catch (RestClientException e) {
@@ -118,16 +129,16 @@ public class PayPalGatewayAdapter implements PaymentGateway {
 
             Map<String, Object> resp = client.post()
                     .uri(baseUrl + "/v2/payments/captures/" + request.getProviderRef() + "/refund")
-                    .header("Authorization", "Bearer " + token).header("Content-Type", "application/json").body(body)
-                    .retrieve().body(Map.class);
+                    .header(HEADER_AUTHORIZATION, BEARER_PREFIX + token).header(HEADER_CONTENT_TYPE, CONTENT_TYPE_JSON)
+                    .body(body).retrieve().body(Map.class);
 
             if (resp == null) {
                 throw new IllegalStateException("Empty PayPal refund response");
             }
 
-            String status = (String) resp.get("status");
-            return RefundResult.builder().success("COMPLETED".equals(status)).providerRef((String) resp.get("id"))
-                    .errorMessage("COMPLETED".equals(status) ? null : "Refund status: " + status).build();
+            String status = (String) resp.get(FIELD_STATUS);
+            return RefundResult.builder().success(STATUS_COMPLETED.equals(status)).providerRef((String) resp.get("id"))
+                    .errorMessage(STATUS_COMPLETED.equals(status) ? null : "Refund status: " + status).build();
 
         } catch (RestClientException e) {
             log.error("PayPal refund failed for paymentId={}: {}", request.getPaymentId(), e.getMessage());

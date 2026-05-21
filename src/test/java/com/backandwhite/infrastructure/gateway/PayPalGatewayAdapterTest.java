@@ -3,11 +3,11 @@ package com.backandwhite.infrastructure.gateway;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
+import com.backandwhite.domain.gateway.PaymentInitiation;
 import com.backandwhite.domain.gateway.PaymentRequest;
 import com.backandwhite.domain.gateway.PaymentResult;
 import com.backandwhite.domain.gateway.RefundRequest;
@@ -16,6 +16,7 @@ import com.backandwhite.domain.valueobject.PaymentMethod;
 import com.backandwhite.infrastructure.client.paypal.PayPalTokenManager;
 import com.backandwhite.infrastructure.gateway.config.PaymentGatewayProperties;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,8 +56,8 @@ class PayPalGatewayAdapterTest {
         when(bodySpec2.body(any(Object.class))).thenReturn(bodySpec2);
         when(bodySpec1.retrieve()).thenReturn(respSpec1);
         when(bodySpec2.retrieve()).thenReturn(respSpec2);
-        when(respSpec1.body(eq(Map.class))).thenReturn(firstResponse);
-        when(respSpec2.body(eq(Map.class))).thenReturn(secondResponse);
+        when(respSpec1.body(Map.class)).thenReturn(firstResponse);
+        when(respSpec2.body(Map.class)).thenReturn(secondResponse);
         return client;
     }
 
@@ -97,16 +98,15 @@ class PayPalGatewayAdapterTest {
     }
 
     @Test
-    void process_nullOrderResponse_throwsAndCaughtAsFailure() {
+    void process_nullOrderResponse_returnsFailure() {
         RestClient client = stubbedRestClient(null, null);
         try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
             mocked.when(RestClient::create).thenReturn(client);
             PaymentRequest request = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
                     .amount(new BigDecimal("15.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
-            // will throw IllegalStateException internally but that is not
-            // RestClientException,
-            // so it propagates. We assert propagation.
-            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> adapter.process(request));
+            PaymentResult result = adapter.process(request);
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getErrorMessage()).contains("Empty PayPal order response");
         }
     }
 
@@ -148,7 +148,7 @@ class PayPalGatewayAdapterTest {
         when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
         when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
         when(bodySpec.retrieve()).thenReturn(respSpec);
-        when(respSpec.body(eq(Map.class))).thenReturn(resp);
+        when(respSpec.body(Map.class)).thenReturn(resp);
 
         try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
             mocked.when(RestClient::create).thenReturn(client);
@@ -172,7 +172,7 @@ class PayPalGatewayAdapterTest {
         when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
         when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
         when(bodySpec.retrieve()).thenReturn(respSpec);
-        when(respSpec.body(eq(Map.class))).thenReturn(resp);
+        when(respSpec.body(Map.class)).thenReturn(resp);
 
         try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
             mocked.when(RestClient::create).thenReturn(client);
@@ -195,7 +195,7 @@ class PayPalGatewayAdapterTest {
         when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
         when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
         when(bodySpec.retrieve()).thenReturn(respSpec);
-        when(respSpec.body(eq(Map.class))).thenReturn(null);
+        when(respSpec.body(Map.class)).thenReturn(null);
 
         try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
             mocked.when(RestClient::create).thenReturn(client);
@@ -216,6 +216,158 @@ class PayPalGatewayAdapterTest {
             RefundResult result = adapter.refund(req);
             assertThat(result.isSuccess()).isFalse();
             assertThat(result.getErrorMessage()).isEqualTo("timeout");
+        }
+    }
+
+    @Test
+    void initiate_restClientException_returnsFailure() {
+        RestClient client = mock(RestClient.class);
+        when(client.post()).thenThrow(new RestClientException("paypal down"));
+        try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
+            mocked.when(RestClient::create).thenReturn(client);
+            PaymentRequest req = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
+                    .amount(new BigDecimal("9.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
+            PaymentInitiation result = adapter.initiate(req);
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getErrorMessage()).isEqualTo("paypal down");
+        }
+    }
+
+    @Test
+    void capture_restClientException_returnsFailure() {
+        RestClient client = mock(RestClient.class);
+        when(client.post()).thenThrow(new RestClientException("capture timeout"));
+        try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
+            mocked.when(RestClient::create).thenReturn(client);
+            PaymentRequest req = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
+                    .amount(new BigDecimal("9.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
+            PaymentResult result = adapter.capture(req, "ORDER-X");
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getErrorMessage()).isEqualTo("capture timeout");
+        }
+    }
+
+    @Test
+    void capture_unsafeProviderRef_isSanitisedInUrl() {
+        // Drives the path-sanitisation defensive code (java:S7044): chars
+        // outside [A-Za-z0-9_-] must be stripped before URL composition.
+        Map<String, Object> captureResp = Map.of("status", "COMPLETED");
+        RestClient client = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class);
+        RestClient.ResponseSpec respSpec = mock(RestClient.ResponseSpec.class);
+        when(client.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
+        when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(respSpec);
+        when(respSpec.body(Map.class)).thenReturn(captureResp);
+
+        try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
+            mocked.when(RestClient::create).thenReturn(client);
+            PaymentRequest req = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
+                    .amount(new BigDecimal("9.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
+            // Slashes/dots stripped — URL must remain well-formed.
+            PaymentResult result = adapter.capture(req, "ORDER../evil");
+            assertThat(result.isSuccess()).isTrue();
+        }
+    }
+
+    @Test
+    void initiate_orderRespWithoutLinks_returnsSuccessNullApproveUrl() {
+        Map<String, Object> orderResp = Map.of("id", "ORDER-NL");
+        RestClient client = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class);
+        RestClient.ResponseSpec respSpec = mock(RestClient.ResponseSpec.class);
+        when(client.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
+        when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(respSpec);
+        when(respSpec.body(Map.class)).thenReturn(orderResp);
+
+        try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
+            mocked.when(RestClient::create).thenReturn(client);
+            PaymentRequest req = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
+                    .amount(new BigDecimal("9.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
+            PaymentInitiation result = adapter.initiate(req);
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getApproveUrl()).isNull();
+        }
+    }
+
+    @Test
+    void initiate_orderRespWithApproveLink_returnsApproveUrl() {
+        Map<String, Object> orderResp = Map.of("id", "ORDER-AL", "links",
+                List.of(Map.of("rel", "approve", "href", "https://paypal/approve")));
+        RestClient client = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class);
+        RestClient.ResponseSpec respSpec = mock(RestClient.ResponseSpec.class);
+        when(client.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
+        when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(respSpec);
+        when(respSpec.body(Map.class)).thenReturn(orderResp);
+
+        try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
+            mocked.when(RestClient::create).thenReturn(client);
+            PaymentRequest req = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
+                    .amount(new BigDecimal("9.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
+            PaymentInitiation result = adapter.initiate(req);
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getApproveUrl()).isEqualTo("https://paypal/approve");
+        }
+    }
+
+    @Test
+    void initiate_orderRespWithLinksMissingApprove_returnsNullApproveUrl() {
+        Map<String, Object> orderResp = Map.of("id", "ORDER-NA", "links",
+                List.of(Map.of("rel", "self", "href", "https://paypal/self")));
+        RestClient client = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class);
+        RestClient.ResponseSpec respSpec = mock(RestClient.ResponseSpec.class);
+        when(client.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
+        when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(respSpec);
+        when(respSpec.body(Map.class)).thenReturn(orderResp);
+
+        try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
+            mocked.when(RestClient::create).thenReturn(client);
+            PaymentRequest req = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
+                    .amount(new BigDecimal("9.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
+            PaymentInitiation result = adapter.initiate(req);
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getApproveUrl()).isNull();
+        }
+    }
+
+    @Test
+    void initiate_orderRespLinksNotAList_returnsNullApproveUrl() {
+        Map<String, Object> orderResp = Map.of("id", "ORDER-BAD", "links", "not-a-list");
+        RestClient client = mock(RestClient.class);
+        RestClient.RequestBodyUriSpec uriSpec = mock(RestClient.RequestBodyUriSpec.class);
+        RestClient.RequestBodySpec bodySpec = mock(RestClient.RequestBodySpec.class);
+        RestClient.ResponseSpec respSpec = mock(RestClient.ResponseSpec.class);
+        when(client.post()).thenReturn(uriSpec);
+        when(uriSpec.uri(anyString())).thenReturn(bodySpec);
+        when(bodySpec.header(anyString(), anyString())).thenReturn(bodySpec);
+        when(bodySpec.body(any(Object.class))).thenReturn(bodySpec);
+        when(bodySpec.retrieve()).thenReturn(respSpec);
+        when(respSpec.body(Map.class)).thenReturn(orderResp);
+
+        try (MockedStatic<RestClient> mocked = mockStatic(RestClient.class)) {
+            mocked.when(RestClient::create).thenReturn(client);
+            PaymentRequest req = PaymentRequest.builder().paymentId("p").orderId("o").userId("u")
+                    .amount(new BigDecimal("9.00")).currency("USD").method(PaymentMethod.PAYPAL).build();
+            PaymentInitiation result = adapter.initiate(req);
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getApproveUrl()).isNull();
         }
     }
 

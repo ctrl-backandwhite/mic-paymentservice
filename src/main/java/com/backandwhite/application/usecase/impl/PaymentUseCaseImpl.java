@@ -56,6 +56,12 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PaymentUseCaseImpl implements PaymentUseCase {
 
+    private static final String ENTITY_NAME = "Payment";
+    private static final String MOCK_REF_PREFIX = "mock_";
+    private static final String GATEWAY_PAYPAL = "paypal";
+    private static final String DEFAULT_SORT_FIELD = "createdAt";
+    private static final String HMAC_ALGO = "HmacSHA256";
+
     private final PaymentRepository repository;
     private final List<PaymentGateway> gateways;
     private final PaymentEventPort paymentEventPort;
@@ -191,7 +197,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         // the flow identical — downstream (order service) cannot tell the difference.
         PaymentResult result;
         if (paymentMockMode(method, paymentRequest)) {
-            String mockRef = "mock_" + gwName + "_" + java.util.UUID.randomUUID();
+            String mockRef = MOCK_REF_PREFIX + gwName + "_" + java.util.UUID.randomUUID();
             log.warn("::> PAYMENT MOCK MODE — skipping real gateway, synthesising success ref={}", mockRef);
             result = PaymentResult.builder().success(true).providerRef(mockRef)
                     .providerResponse(java.util.Map.of("mockMode", true, "gateway", gwName)).build();
@@ -268,7 +274,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
                 .idempotencyKey(idempotencyKey).build());
 
         paymentEventPort.publishPaymentInitiated(payment.getId(), orderId, userId, amount.toPlainString(),
-                displayCurrency, PaymentMethod.PAYPAL.name(), "paypal");
+                displayCurrency, PaymentMethod.PAYPAL.name(), GATEWAY_PAYPAL);
 
         PaymentRequest req = PaymentRequest.builder().paymentId(payment.getId()).orderId(orderId).userId(userId)
                 .email(email).amount(settlementAmount.getAmount()).currency(settlementCurrency)
@@ -279,7 +285,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
             payment = payment.withStatus(PaymentStatus.FAILED).withErrorMessage(init.getErrorMessage());
             repository.update(payment);
             paymentEventPort.publishPaymentFailed(payment.getId(), orderId, userId, email, amount.toPlainString(),
-                    init.getErrorMessage(), "paypal");
+                    init.getErrorMessage(), GATEWAY_PAYPAL);
             throw PAYMENT_PROCESSING_FAILED.toBusinessException(init.getErrorMessage());
         }
 
@@ -293,7 +299,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     @Transactional
     public Payment capturePayPalPayment(String paypalOrderId) {
         Payment payment = repository.findByProviderRef(paypalOrderId)
-                .orElseThrow(() -> ENTITY_NOT_FOUND.toEntityNotFound("Payment", paypalOrderId));
+                .orElseThrow(() -> ENTITY_NOT_FOUND.toEntityNotFound(ENTITY_NAME, paypalOrderId));
 
         if (payment.getStatus() == PaymentStatus.COMPLETED) {
             log.info("PayPal capture: payment {} already COMPLETED, returning idempotent", payment.getId());
@@ -311,15 +317,15 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
             payment = payment.withStatus(PaymentStatus.COMPLETED).withProviderRef(result.getProviderRef())
                     .withProviderResponse(result.getProviderResponse());
             paymentEventPort.publishPaymentConfirmed(payment.getId(), payment.getOrderId(), payment.getUserId(), null,
-                    payment.getAmount().toPlainString(), payment.getCurrency(), PaymentMethod.PAYPAL.name(), "paypal",
-                    result.getProviderRef());
+                    payment.getAmount().toPlainString(), payment.getCurrency(), PaymentMethod.PAYPAL.name(),
+                    GATEWAY_PAYPAL, result.getProviderRef());
             return repository.update(payment);
         }
 
         payment = payment.withStatus(PaymentStatus.FAILED).withErrorMessage(result.getErrorMessage())
                 .withProviderResponse(result.getProviderResponse());
         paymentEventPort.publishPaymentFailed(payment.getId(), payment.getOrderId(), payment.getUserId(), null,
-                payment.getAmount().toPlainString(), result.getErrorMessage(), "paypal");
+                payment.getAmount().toPlainString(), result.getErrorMessage(), GATEWAY_PAYPAL);
         repository.update(payment);
         throw PAYMENT_PROCESSING_FAILED.toBusinessException(
                 result.getErrorMessage() != null ? result.getErrorMessage() : "PayPal capture rejected");
@@ -328,20 +334,29 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     @Override
     @Transactional(readOnly = true)
     public Payment findById(String id) {
-        return repository.findById(id).orElseThrow(() -> ENTITY_NOT_FOUND.toEntityNotFound("Payment", id));
+        return findByIdInternal(id);
+    }
+
+    /**
+     * Internal lookup used by other use-case methods. Bypasses
+     * {@code @Transactional} AOP (Sonar S6809) — the calling method already holds
+     * the transaction.
+     */
+    private Payment findByIdInternal(String id) {
+        return repository.findById(id).orElseThrow(() -> ENTITY_NOT_FOUND.toEntityNotFound(ENTITY_NAME, id));
     }
 
     @Override
     @Transactional(readOnly = true)
     public Payment findByOrderId(String orderId) {
         return repository.findByOrderId(orderId)
-                .orElseThrow(() -> ENTITY_NOT_FOUND.toEntityNotFound("Payment", orderId));
+                .orElseThrow(() -> ENTITY_NOT_FOUND.toEntityNotFound(ENTITY_NAME, orderId));
     }
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<Payment> findByUserId(String userId, int page, int size, String sortBy, boolean ascending) {
-        String field = (sortBy != null && !sortBy.isBlank()) ? sortBy : "createdAt";
+        String field = (sortBy != null && !sortBy.isBlank()) ? sortBy : DEFAULT_SORT_FIELD;
         Pageable pageable = PageRequest.of(page, size,
                 ascending ? Sort.by(field).ascending() : Sort.by(field).descending());
         return PageResult.from(repository.findByUserId(userId, pageable));
@@ -351,7 +366,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     @Transactional(readOnly = true)
     public PageResult<Payment> findAll(Map<String, Object> filters, int page, int size, String sortBy,
             boolean ascending) {
-        String field = (sortBy != null && !sortBy.isBlank()) ? sortBy : "createdAt";
+        String field = (sortBy != null && !sortBy.isBlank()) ? sortBy : DEFAULT_SORT_FIELD;
         Pageable pageable = PageRequest.of(page, size,
                 ascending ? Sort.by(field).ascending() : Sort.by(field).descending());
         return PageResult.from(repository.findAll(filters, pageable));
@@ -360,7 +375,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     @Override
     @Transactional
     public PaymentRefund refundPayment(String paymentId, Money amount, String reason) {
-        Payment payment = findById(paymentId);
+        Payment payment = findByIdInternal(paymentId);
 
         if (payment.getStatus() != PaymentStatus.COMPLETED && payment.getStatus() != PaymentStatus.PARTIALLY_REFUNDED) {
             throw PAYMENT_NOT_COMPLETED.toBusinessException(paymentId);
@@ -410,7 +425,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     @Transactional(readOnly = true)
     public PageResult<PaymentRefund> findRefunds(String paymentId, int page, int size, String sortBy,
             boolean ascending) {
-        String field = (sortBy != null && !sortBy.isBlank()) ? sortBy : "createdAt";
+        String field = (sortBy != null && !sortBy.isBlank()) ? sortBy : DEFAULT_SORT_FIELD;
         Pageable pageable = PageRequest.of(page, size,
                 ascending ? Sort.by(field).ascending() : Sort.by(field).descending());
         return PageResult.from(repository.findRefundsByPaymentId(paymentId, pageable));
@@ -447,10 +462,10 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         String gwName = gateway.getClass().getSimpleName().replace("GatewayAdapter", "").toLowerCase();
         PaymentResult result;
         if (paymentMockMode(method)) {
-            String mockRef = "mock_" + gwName + "_" + java.util.UUID.randomUUID();
+            String mockRef = MOCK_REF_PREFIX + gwName + "_" + java.util.UUID.randomUUID();
             log.warn("::> PAYMENT MOCK MODE — skipping real crypto gateway, synthesising ref={}", mockRef);
             result = PaymentResult.builder().success(true).providerRef(mockRef)
-                    .cryptoAddress("mock_" + method.name().toLowerCase() + "_address")
+                    .cryptoAddress(MOCK_REF_PREFIX + method.name().toLowerCase() + "_address")
                     .qrCodeUrl("mock://" + method.name().toLowerCase() + "/" + payment.getId())
                     .providerResponse(java.util.Map.of("mockMode", true, "gateway", gwName)).build();
         } else {
@@ -467,7 +482,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
     @Override
     @Transactional
     public Payment verifyCryptoPayment(String paymentId) {
-        Payment payment = findById(paymentId);
+        Payment payment = findByIdInternal(paymentId);
 
         if (payment.getCryptoExpiresAt() != null && Instant.now().isAfter(payment.getCryptoExpiresAt())) {
             repository.update(payment.withStatus(PaymentStatus.FAILED).withErrorMessage("Payment expired"));
@@ -511,7 +526,7 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
 
         switch (provider.toLowerCase()) {
             case "stripe" -> handleStripeWebhook(payload, signature);
-            case "paypal" -> handlePayPalWebhook(payload, signature);
+            case GATEWAY_PAYPAL -> handlePayPalWebhook(payload, signature);
             case "crypto" -> handleCoinbaseWebhook(payload, signature);
             default -> log.warn("Unknown webhook provider: {}", provider);
         }
@@ -582,8 +597,8 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         }
         try {
             String secret = gatewayProperties.getPaypal().getClientSecret();
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            Mac mac = Mac.getInstance(HMAC_ALGO);
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_ALGO));
             String computed = HexFormat.of().formatHex(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
             if (!computed.equalsIgnoreCase(signature)) {
                 throw new ArgumentException("SE004", "Invalid PayPal webhook signature");
@@ -600,8 +615,8 @@ public class PaymentUseCaseImpl implements PaymentUseCase {
         }
         try {
             String secret = gatewayProperties.getCrypto().getCoinbase().getWebhookSecret();
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            Mac mac = Mac.getInstance(HMAC_ALGO);
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), HMAC_ALGO));
             String computed = HexFormat.of().formatHex(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
             if (!computed.equalsIgnoreCase(signature)) {
                 throw new ArgumentException("SE007", "Invalid Coinbase webhook signature");

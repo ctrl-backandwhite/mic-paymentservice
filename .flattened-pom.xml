@@ -20,14 +20,7 @@
     </license>
   </licenses>
   <properties>
-    <sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
-    <sonar.projectKey>nx036_${project.artifactId}</sonar.projectKey>
-    <sonar.tests>src/test/java</sonar.tests>
-    <sonar.host.url>${env.SONAR_HOST_URL}</sonar.host.url>
-    <sonar.login>${env.SONAR_TOKEN}</sonar.login>
     <sonar.organization>ctrl-backandwhite</sonar.organization>
-    <sonar.sources>src/main/java</sonar.sources>
-    <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -173,22 +166,13 @@
         </executions>
         <configuration>
           <excludes>
-            <exclude>**/dto/**</exclude>
-            <exclude>**/*DtoIn.*</exclude>
-            <exclude>**/*DtoOut.*</exclude>
-            <exclude>**/model/**</exclude>
-            <exclude>**/*Entity.*</exclude>
-            <exclude>**/MicPaymentserviceApplication.*</exclude>
-            <exclude>**/configuration/**</exclude>
-            <exclude>**/*Config.*</exclude>
-            <exclude>**/*Properties.*</exclude>
-            <exclude>**/infrastructure/client/**</exclude>
-            <exclude>**/infrastructure/db/postgres/repository/**</exclude>
-            <exclude>**/infrastructure/db/postgres/entity/**</exclude>
-            <exclude>**/infrastructure/db/postgres/specification/**</exclude>
-            <exclude>**/infrastructure/message/**</exclude>
-            <exclude>**/*Application.*</exclude>
-            <exclude>**/valueobject/**</exclude>
+            <exclude>**/*MapperImpl.class</exclude>
+            <exclude>**/*MapperImpl$*.class</exclude>
+            <exclude>**/*Application.class</exclude>
+            <exclude>**/configuration/**/*</exclude>
+            <exclude>**/dto/**/*</exclude>
+            <exclude>**/entity/**/*</exclude>
+            <exclude>**/document/**/*</exclude>
           </excludes>
         </configuration>
       </plugin>
